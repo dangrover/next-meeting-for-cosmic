@@ -1,0 +1,45 @@
+[package]
+name = "meeting"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+description = "Show next meeting in cosmic panel or dock"
+repository = "https://github.com/pop-os/cosmic-app-template"
+
+[dependencies]
+futures-util = "0.3.31"
+i18n-embed-fl = "0.10"
+rust-embed = "8.7.2"
+tokio = { version = "1.48.0", features = ["full"] }
+zbus = { version = "3.14", features = ["tokio", "xml"] }
+ical = "0.8"
+chrono = "0.4"
+
+[dependencies.i18n-embed]
+version = "0.16"
+features = ["fluent-system", "desktop-requester"]
+
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic.git"
+# See https://github.com/pop-os/libcosmic/blob/master/Cargo.toml for available features.
+features = [
+    # Applet support
+    "applet",
+    "applet-token",
+    # Uses cosmic-settings-daemon to watch for config file changes
+    "dbus-config",
+    # Support creating additional application windows.
+    "multi-window",
+    # Uses tokio as the executor for the runtime
+    "tokio",
+    # Add Wayland support to winit
+    "wayland",
+    # Windowing support for X11, Windows, Mac, & Redox
+    "winit",
+]
+
+# Uncomment to test a locally-cloned libcosmic
+# [patch.'https://github.com/pop-os/libcosmic']
+# libcosmic = { path = "../libcosmic" }
+# cosmic-config = { path = "../libcosmic/cosmic-config" }
+# cosmic-theme = { path = "../libcosmic/cosmic-theme" }
