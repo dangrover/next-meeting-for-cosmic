@@ -47,6 +47,10 @@ check-json: (check '--message-format=json')
 run *args:
     env RUST_BACKTRACE=full cargo run --release {{args}}
 
+# Build, install, and restart panel for quick dev iteration
+dev: build-release install
+    pkill -HUP cosmic-panel || true
+
 # Installs files
 install:
     install -Dm0755 {{ cargo-target-dir / 'release' / name }} {{bin-dst}}

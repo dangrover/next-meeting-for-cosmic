@@ -110,7 +110,15 @@ async fn get_next_meeting_from_dbus(conn: &Connection, enabled_uids: &[String]) 
 
         // Step 4: Parse iCalendar objects and extract meetings
         for ics_object in ics_objects {
-            if let Some(Ok(calendar)) = IcalParser::new(ics_object.as_bytes()).next() {
+            // EDS returns raw VEVENT objects without VCALENDAR wrapper
+            // The ical crate needs the wrapper, so add it if missing
+            let wrapped = if ics_object.trim().starts_with("BEGIN:VEVENT") {
+                format!("BEGIN:VCALENDAR\nVERSION:2.0\n{}\nEND:VCALENDAR", ics_object)
+            } else {
+                ics_object.clone()
+            };
+
+            if let Some(Ok(calendar)) = IcalParser::new(wrapped.as_bytes()).next() {
                 for event in calendar.events {
                     // Get start and end times
                     let start_dt = event
@@ -127,7 +135,10 @@ async fn get_next_meeting_from_dbus(conn: &Connection, enabled_uids: &[String]) 
                         .and_then(|p| p.value.as_ref())
                         .and_then(|v| parse_ical_datetime(v, &now));
                     
-                    if let (Some(start), Some(end)) = (start_dt, end_dt) {
+                    if let Some(start) = start_dt {
+                        // Use end time if available, otherwise assume 1 hour duration
+                        let end = end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
+
                         // Only include future meetings
                         if start > now {
                             let title = event
@@ -304,33 +315,51 @@ fn parse_display_name(data: &str) -> Option<String> {
 }
 
 fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<DateTime<Local>> {
+    // The value might be in formats like:
+    // - "20240221T123000" (local time)
+    // - "20240221T123000Z" (UTC)
+    // - "TZID=America/Los_Angeles:20240221T123000" (with timezone param)
+    // - "VALUE=DATE:20250527" (date only)
+
+    // Extract the actual datetime value (after the last colon if present)
+    let value = if value.contains(':') {
+        value.split(':').last().unwrap_or(value)
+    } else {
+        value
+    };
+    let value = value.trim();
+
     // Try parsing as ISO 8601 format first
     if let Ok(dt) = DateTime::parse_from_rfc3339(value) {
         return Some(dt.with_timezone(&Local));
     }
-    
-    // Try parsing as YYYYMMDDTHHMMSS format
-    if value.len() >= 15 {
-        let date_part = &value[0..8];
-        let time_part = if value.len() >= 15 { &value[9..15] } else { "000000" };
-        
-        if let Ok(naive) = NaiveDateTime::parse_from_str(
-            &format!("{} {}", date_part, time_part),
-            "%Y%m%d %H%M%S"
-        ) {
+
+    // Handle UTC times (ending with Z)
+    if value.ends_with('Z') {
+        let value = &value[..value.len()-1];
+        if value.len() >= 15 {
+            if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S") {
+                return Some(chrono::Utc.from_utc_datetime(&naive).with_timezone(&Local));
+            }
+        }
+    }
+
+    // Try parsing as YYYYMMDDTHHMMSS format (local time)
+    if value.len() >= 15 && value.contains('T') {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S") {
             return Local.from_local_datetime(&naive).single();
         }
     }
-    
+
     // Try parsing as date only (YYYYMMDD)
-    if value.len() == 8 {
+    if value.len() == 8 && value.chars().all(|c| c.is_ascii_digit()) {
         if let Ok(naive) = NaiveDateTime::parse_from_str(
-            &format!("{} 00:00:00", value),
-            "%Y%m%d %H:%M:%S"
+            &format!("{}T000000", value),
+            "%Y%m%dT%H%M%S"
         ) {
             return Local.from_local_datetime(&naive).single();
         }
     }
-    
+
     None
 }

@@ -2980,6 +2980,7 @@ dependencies = [
  "ical",
  "libcosmic",
  "rust-embed",
+ "serde",
  "tokio",
  "zbus 3.15.2",
 ]
