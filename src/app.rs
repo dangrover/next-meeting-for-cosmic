@@ -108,16 +108,23 @@ impl cosmic::Application for AppModel {
     /// be drawn using the `view_window` method.
     fn view(&self) -> Element<'_, Self::Message> {
         let text = if let Some(meeting) = &self.next_meeting {
-            format!("{}", meeting.title)
+            // Truncate long titles
+            let title = &meeting.title;
+            if title.len() > 50 {
+                format!("{}...", &title[..47])
+            } else {
+                title.clone()
+            }
         } else {
             "No meetings".to_string()
         };
-        
-        widget::mouse_area(
+
+        widget::button::custom(
             widget::container(widget::text(text))
-                .padding([8, 12])
-                .width(Length::Fixed(200.0))
+                .padding([4, 12])
+                .width(Length::Shrink)
         )
+        .class(cosmic::theme::Button::AppletIcon)
         .on_press(Message::TogglePopup)
         .into()
     }
