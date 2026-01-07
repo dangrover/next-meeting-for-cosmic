@@ -17,10 +17,6 @@ const DISPLAY_FORMAT_OPTIONS: &[&str] = &[
     "Relative time",
 ];
 
-/// Upcoming events count options (0-10)
-const UPCOMING_COUNT_OPTIONS: &[&str] = &[
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
-];
 
 /// Check if user prefers 24-hour (military) time from COSMIC settings
 fn use_military_time() -> bool {
@@ -245,14 +241,19 @@ impl AppModel {
                 .class(cosmic::theme::Container::List)
         );
 
-        // Upcoming events count dropdown
-        let count_idx = Some(self.config.upcoming_events_count as usize);
+        // Upcoming events count spin button
         content = content.push(
             widget::row::with_capacity(3)
                 .push(widget::text::body(fl!("upcoming-events-section")))
                 .push(widget::horizontal_space())
-                .push(widget::dropdown(UPCOMING_COUNT_OPTIONS, count_idx, Message::SetUpcomingEventsCount)
-                    .width(Length::Fixed(80.0)))
+                .push(widget::spin_button(
+                    "",
+                    self.config.upcoming_events_count as i32,
+                    1,
+                    0,
+                    10,
+                    Message::SetUpcomingEventsCount,
+                ))
                 .align_y(cosmic::iced::Alignment::Center)
                 .width(Length::Fill)
                 .apply(widget::container)
@@ -418,7 +419,7 @@ pub enum Message {
     CalendarsLoaded(Vec<CalendarInfo>),
     ToggleCalendar(String),
     SelectDisplayFormat(usize),
-    SetUpcomingEventsCount(usize),
+    SetUpcomingEventsCount(i32),
     Navigate(PopupPage),
 }
 
@@ -613,7 +614,7 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::SetUpcomingEventsCount(count) => {
-                self.config.upcoming_events_count = count.min(10) as u8;
+                self.config.upcoming_events_count = count.clamp(0, 10) as u8;
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }

@@ -47,28 +47,39 @@ check-json: (check '--message-format=json')
 run *args:
     env RUST_BACKTRACE=full cargo run --release {{args}}
 
-# Build, install, and restart panel for quick dev iteration
-dev: build-release install restart-panel
+# Build, install, and reload applet for quick dev iteration
+dev: build-release install reload-applet
 
-# Restart the cosmic panel (use this instead of manual commands)
+# Reload just the meeting applet (panel will respawn it with new binary)
+reload-applet:
+    #!/usr/bin/env bash
+    # Kill our applet processes - panel will auto-respawn them
+    if pkill -x meeting 2>/dev/null; then
+        sleep 0.5
+        if pgrep -x meeting >/dev/null; then
+            echo "Applet reloaded (PID: $(pgrep -x meeting | head -1))"
+        else
+            echo "Applet killed, waiting for panel to respawn..."
+            sleep 2
+            if pgrep -x meeting >/dev/null; then
+                echo "Applet respawned (PID: $(pgrep -x meeting | head -1))"
+            else
+                echo "Warning: Applet not respawned - panel may need restart"
+            fi
+        fi
+    else
+        echo "No running applet found"
+    fi
+
+# Restart the cosmic panel (use only if reload-applet doesn't work)
 restart-panel:
     #!/usr/bin/env bash
-    set -e
-    # Kill any existing panel instances
+    echo "Warning: This may cause duplicate panels. Consider logout/login instead."
     pkill -x cosmic-panel 2>/dev/null || true
-    sleep 1
-    # Ensure they're really dead
-    pkill -9 -x cosmic-panel 2>/dev/null || true
-    sleep 0.5
-    # Start fresh (redirect output to avoid confusing errors)
+    sleep 2
     nohup cosmic-panel >/dev/null 2>&1 &
     sleep 1
-    # Verify it started
-    if pgrep -x cosmic-panel >/dev/null; then
-        echo "Panel restarted successfully (PID: $(pgrep -x cosmic-panel | head -1))"
-    else
-        echo "Warning: Panel may not have started"
-    fi
+    pgrep -x cosmic-panel && echo "Panel restarted" || echo "Panel may not have started"
 
 # Installs files
 install:
