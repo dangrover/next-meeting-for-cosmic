@@ -50,36 +50,20 @@ run *args:
 # Build, install, and reload applet for quick dev iteration
 dev: build-release install reload-applet
 
-# Reload just the meeting applet (panel will respawn it with new binary)
+# Reload applet by restarting panel (session manager handles restart)
 reload-applet:
     #!/usr/bin/env bash
-    # Kill our applet processes - panel will auto-respawn them
-    if pkill -x meeting 2>/dev/null; then
-        sleep 0.5
+    # Kill the panel - cosmic-session will auto-restart it with new applet binary
+    pkill -9 -x cosmic-panel 2>/dev/null || true
+    sleep 3
+    if pgrep -x cosmic-panel >/dev/null; then
+        echo "Panel restarted by session manager"
         if pgrep -x meeting >/dev/null; then
-            echo "Applet reloaded (PID: $(pgrep -x meeting | head -1))"
-        else
-            echo "Applet killed, waiting for panel to respawn..."
-            sleep 2
-            if pgrep -x meeting >/dev/null; then
-                echo "Applet respawned (PID: $(pgrep -x meeting | head -1))"
-            else
-                echo "Warning: Applet not respawned - panel may need restart"
-            fi
+            echo "Applet running (PID: $(pgrep -x meeting | head -1))"
         fi
     else
-        echo "No running applet found"
+        echo "Warning: Panel not restarted - may need to log out/in"
     fi
-
-# Restart the cosmic panel (use only if reload-applet doesn't work)
-restart-panel:
-    #!/usr/bin/env bash
-    echo "Warning: This may cause duplicate panels. Consider logout/login instead."
-    pkill -x cosmic-panel 2>/dev/null || true
-    sleep 2
-    nohup cosmic-panel >/dev/null 2>&1 &
-    sleep 1
-    pgrep -x cosmic-panel && echo "Panel restarted" || echo "Panel may not have started"
 
 # Installs files
 install:

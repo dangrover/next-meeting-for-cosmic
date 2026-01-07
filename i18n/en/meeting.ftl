@@ -1,7 +1,10 @@
 app-title = Meeting
 no-meetings = No upcoming meetings
 settings = Settings
+open-calendar = Open calendar
 back = Back
+next-meeting = Next meeting
+upcoming = Upcoming
 display-format-section = Display Format
 upcoming-events-section = Upcoming Events
 calendars-section = Calendars

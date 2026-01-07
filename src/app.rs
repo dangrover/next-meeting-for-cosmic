@@ -111,7 +111,10 @@ impl AppModel {
             let relative = format_relative_time(duration);
             let time_str = format_time(&meeting.start, true);
 
-            // Next meeting section (separate group)
+            // "Next meeting" section heading
+            content = content.push(widget::text::heading(fl!("next-meeting")));
+
+            // Next meeting content block
             let next_meeting_block = widget::column::with_capacity(3)
                 .push(widget::text::title4(&meeting.title))
                 .push(widget::text::body(time_str))
@@ -125,11 +128,17 @@ impl AppModel {
 
             content = content.push(next_meeting_block);
 
-            // Upcoming events section (separate group)
+            // Upcoming events section
             let upcoming_count = self.config.upcoming_events_count as usize;
             if upcoming_count > 0 && self.upcoming_meetings.len() > 1 {
+                // Extra space before "Upcoming" section
+                content = content.push(widget::vertical_space().height(space.space_xxs));
+
+                // "Upcoming" section heading
+                content = content.push(widget::text::heading(fl!("upcoming")));
+
                 let mut upcoming_block = widget::column::with_capacity(upcoming_count)
-                    .spacing(space.space_xxxs)
+                    .spacing(space.space_xs)
                     .width(Length::Fill);
 
                 for meeting in self.upcoming_meetings.iter().skip(1).take(upcoming_count) {
@@ -145,10 +154,10 @@ impl AppModel {
 
                     upcoming_block = upcoming_block.push(
                         widget::row::with_capacity(3)
-                            .push(widget::text::caption(title))
+                            .push(widget::text::body(title))
                             .push(widget::horizontal_space())
                             .push(
-                                widget::text::caption(time_str)
+                                widget::text::body(time_str)
                                     .apply(widget::container)
                                     .class(cosmic::theme::Container::custom(move |_| {
                                         cosmic::iced_widget::container::Style {
@@ -168,6 +177,9 @@ impl AppModel {
                         .width(Length::Fill)
                         .class(cosmic::theme::Container::List)
                 );
+
+                // Extra space after "Upcoming" section
+                content = content.push(widget::vertical_space().height(space.space_xxs));
             }
         } else {
             content = content.push(
@@ -178,21 +190,40 @@ impl AppModel {
             );
         }
 
-        // Settings navigation row
-        content = content.push(
-            widget::button::custom(
-                widget::row::with_capacity(3)
-                    .push(widget::text::body(fl!("settings")))
-                    .push(widget::horizontal_space())
-                    .push(widget::icon::from_name("go-next-symbolic").size(16))
-                    .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
-                    .padding(space.space_xs)
+        // Bottom actions section (Open calendar + Settings)
+        let actions = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
+            .add(
+                widget::button::custom(
+                    widget::row::with_capacity(3)
+                        .push(widget::icon::from_name("office-calendar-symbolic").size(16))
+                        .push(widget::text::body(fl!("open-calendar")))
+                        .push(widget::horizontal_space())
+                        .spacing(space.space_xs)
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill)
+                )
+                .width(Length::Fill)
+                .class(cosmic::theme::Button::MenuItem)
+                .on_press(Message::OpenCalendar)
             )
-            .width(Length::Fill)
-            .class(cosmic::theme::Button::MenuItem)
-            .on_press(Message::Navigate(PopupPage::Settings))
-        );
+            .add(
+                widget::button::custom(
+                    widget::row::with_capacity(4)
+                        .push(widget::icon::from_name("preferences-system-symbolic").size(16))
+                        .push(widget::text::body(fl!("settings")))
+                        .push(widget::horizontal_space())
+                        .push(widget::icon::from_name("go-next-symbolic").size(16))
+                        .spacing(space.space_xs)
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill)
+                )
+                .width(Length::Fill)
+                .class(cosmic::theme::Button::MenuItem)
+                .on_press(Message::Navigate(PopupPage::Settings))
+            );
+
+        content = content.push(actions);
 
         content.into()
     }
@@ -247,7 +278,7 @@ impl AppModel {
                 .push(widget::text::body(fl!("upcoming-events-section")))
                 .push(widget::horizontal_space())
                 .push(widget::spin_button(
-                    "",
+                    self.config.upcoming_events_count.to_string(),
                     self.config.upcoming_events_count as i32,
                     1,
                     0,
@@ -421,6 +452,7 @@ pub enum Message {
     SelectDisplayFormat(usize),
     SetUpcomingEventsCount(i32),
     Navigate(PopupPage),
+    OpenCalendar,
 }
 
 /// Create a COSMIC application from the app model
@@ -628,6 +660,20 @@ impl cosmic::Application for AppModel {
             }
             Message::Navigate(page) => {
                 self.current_page = page;
+            }
+            Message::OpenCalendar => {
+                // Query the default calendar application and launch it
+                if let Ok(output) = std::process::Command::new("xdg-mime")
+                    .args(["query", "default", "text/calendar"])
+                    .output()
+                {
+                    let desktop_file = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !desktop_file.is_empty() {
+                        let _ = std::process::Command::new("gio")
+                            .args(["launch", &desktop_file])
+                            .spawn();
+                    }
+                }
             }
             Message::TogglePopup => {
                 return if let Some(p) = self.popup.take() {
