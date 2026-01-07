@@ -48,8 +48,27 @@ run *args:
     env RUST_BACKTRACE=full cargo run --release {{args}}
 
 # Build, install, and restart panel for quick dev iteration
-dev: build-release install
-    pkill -HUP cosmic-panel || true
+dev: build-release install restart-panel
+
+# Restart the cosmic panel (use this instead of manual commands)
+restart-panel:
+    #!/usr/bin/env bash
+    set -e
+    # Kill any existing panel instances
+    pkill -x cosmic-panel 2>/dev/null || true
+    sleep 1
+    # Ensure they're really dead
+    pkill -9 -x cosmic-panel 2>/dev/null || true
+    sleep 0.5
+    # Start fresh (redirect output to avoid confusing errors)
+    nohup cosmic-panel >/dev/null 2>&1 &
+    sleep 1
+    # Verify it started
+    if pgrep -x cosmic-panel >/dev/null; then
+        echo "Panel restarted successfully (PID: $(pgrep -x cosmic-panel | head -1))"
+    else
+        echo "Warning: Panel may not have started"
+    fi
 
 # Installs files
 install:

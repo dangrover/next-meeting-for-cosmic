@@ -8,13 +8,18 @@ use cosmic::cosmic_theme;
 use cosmic::iced::{window::Id, Length, Limits, Subscription};
 use cosmic::iced_winit::commands::popup::{destroy_popup, get_popup};
 use cosmic::prelude::*;
-use cosmic::widget::{self, settings};
+use cosmic::widget;
 use futures_util::SinkExt;
 
 /// Display format labels for the dropdown
 const DISPLAY_FORMAT_OPTIONS: &[&str] = &[
     "Day & time",
     "Relative time",
+];
+
+/// Upcoming events count options (0-10)
+const UPCOMING_COUNT_OPTIONS: &[&str] = &[
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
 ];
 
 /// Check if user prefers 24-hour (military) time from COSMIC settings
@@ -50,8 +55,8 @@ pub struct AppModel {
     popup: Option<Id>,
     /// Configuration data that persists between application runs.
     config: Config,
-    /// The next meeting to display.
-    next_meeting: Option<Meeting>,
+    /// Upcoming meetings to display.
+    upcoming_meetings: Vec<Meeting>,
     /// Available calendars from Evolution Data Server.
     available_calendars: Vec<CalendarInfo>,
     /// Config context for saving changes.
@@ -97,45 +102,99 @@ impl AppModel {
 
     /// Main popup page showing meeting info and settings nav
     fn view_main_page(&self) -> Element<'_, Message> {
+        use chrono::Local;
         let space = spacing();
-        let mut content = widget::list_column()
-            .padding(space.space_xxxs)
-            .spacing(space.space_none);
+        let now = Local::now();
 
-        // Meeting info section
-        if let Some(meeting) = &self.next_meeting {
-            use chrono::Local;
-            let now = Local::now();
+        let mut content = widget::column::with_capacity(4)
+            .padding(space.space_xs)
+            .spacing(space.space_xs);
+
+        if let Some(meeting) = self.upcoming_meetings.first() {
             let duration = meeting.start.signed_duration_since(now);
             let relative = format_relative_time(duration);
             let time_str = format_time(&meeting.start, true);
 
-            content = content.add(
-                widget::column::with_capacity(3)
-                    .push(widget::text::title4(&meeting.title))
-                    .push(widget::text::body(time_str))
-                    .push(widget::text::body(relative))
+            // Next meeting section (separate group)
+            let next_meeting_block = widget::column::with_capacity(3)
+                .push(widget::text::title4(&meeting.title))
+                .push(widget::text::body(time_str))
+                .push(widget::text::body(relative))
+                .spacing(space.space_xxxs)
+                .width(Length::Fill)
+                .apply(widget::container)
+                .padding(space.space_xs)
+                .width(Length::Fill)
+                .class(cosmic::theme::Container::List);
+
+            content = content.push(next_meeting_block);
+
+            // Upcoming events section (separate group)
+            let upcoming_count = self.config.upcoming_events_count as usize;
+            if upcoming_count > 0 && self.upcoming_meetings.len() > 1 {
+                let mut upcoming_block = widget::column::with_capacity(upcoming_count)
                     .spacing(space.space_xxxs)
-                    .width(Length::Shrink)
-            );
+                    .width(Length::Fill);
+
+                for meeting in self.upcoming_meetings.iter().skip(1).take(upcoming_count) {
+                    let title = if meeting.title.len() > 25 {
+                        format!("{}...", &meeting.title[..22])
+                    } else {
+                        meeting.title.clone()
+                    };
+                    let time_str = format_time(&meeting.start, false);
+
+                    // Get secondary text color from theme
+                    let secondary_color = cosmic::theme::active().cosmic().palette.neutral_6;
+
+                    upcoming_block = upcoming_block.push(
+                        widget::row::with_capacity(3)
+                            .push(widget::text::caption(title))
+                            .push(widget::horizontal_space())
+                            .push(
+                                widget::text::caption(time_str)
+                                    .apply(widget::container)
+                                    .class(cosmic::theme::Container::custom(move |_| {
+                                        cosmic::iced_widget::container::Style {
+                                            text_color: Some(secondary_color.into()),
+                                            ..Default::default()
+                                        }
+                                    }))
+                            )
+                            .spacing(space.space_xs)
+                    );
+                }
+
+                content = content.push(
+                    upcoming_block
+                        .apply(widget::container)
+                        .padding(space.space_xs)
+                        .width(Length::Fill)
+                        .class(cosmic::theme::Container::List)
+                );
+            }
         } else {
-            content = content.add(
+            content = content.push(
                 widget::text::body(fl!("no-meetings"))
+                    .apply(widget::container)
+                    .padding(space.space_xs)
+                    .class(cosmic::theme::Container::List)
             );
         }
 
-        // Settings navigation row with chevron
-        content = content.add(
-            settings::item_row(vec![
-                widget::text::body(fl!("settings")).into(),
-                widget::horizontal_space().into(),
-                widget::icon::from_name("go-next-symbolic").size(16).into(),
-            ])
-            .apply(widget::container)
-            .class(cosmic::theme::Container::List)
-            .apply(widget::button::custom)
-            .padding(0)
-            .class(cosmic::theme::Button::Transparent)
+        // Settings navigation row
+        content = content.push(
+            widget::button::custom(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("settings")))
+                    .push(widget::horizontal_space())
+                    .push(widget::icon::from_name("go-next-symbolic").size(16))
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+                    .padding(space.space_xs)
+            )
+            .width(Length::Fill)
+            .class(cosmic::theme::Button::MenuItem)
             .on_press(Message::Navigate(PopupPage::Settings))
         );
 
@@ -145,12 +204,12 @@ impl AppModel {
     /// Settings page with back button
     fn view_settings_page(&self) -> Element<'_, Message> {
         let space = spacing();
-        let mut content = widget::list_column()
-            .padding(space.space_xxxs)
-            .spacing(space.space_none);
+        let mut content = widget::column::with_capacity(4)
+            .padding(space.space_xs)
+            .spacing(space.space_xs);
 
         // Back button header
-        content = content.add(
+        content = content.push(
             widget::column::with_capacity(2)
                 .push(
                     widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
@@ -163,7 +222,6 @@ impl AppModel {
                 )
                 .push(widget::text::title4(fl!("settings")))
                 .spacing(space.space_xxxs)
-                .width(Length::Shrink)
         );
 
         // Display format dropdown
@@ -173,12 +231,34 @@ impl AppModel {
             _ => Some(0), // Default to DayAndTime for legacy values
         };
 
-        content = content.add(
-            settings::item(
-                fl!("display-format-section"),
-                widget::dropdown(DISPLAY_FORMAT_OPTIONS, format_idx, Message::SelectDisplayFormat)
-                    .width(Length::Fixed(180.0)),
-            )
+        content = content.push(
+            widget::row::with_capacity(3)
+                .push(widget::text::body(fl!("display-format-section")))
+                .push(widget::horizontal_space())
+                .push(widget::dropdown(DISPLAY_FORMAT_OPTIONS, format_idx, Message::SelectDisplayFormat)
+                    .width(Length::Fixed(180.0)))
+                .align_y(cosmic::iced::Alignment::Center)
+                .width(Length::Fill)
+                .apply(widget::container)
+                .padding(space.space_xs)
+                .width(Length::Fill)
+                .class(cosmic::theme::Container::List)
+        );
+
+        // Upcoming events count dropdown
+        let count_idx = Some(self.config.upcoming_events_count as usize);
+        content = content.push(
+            widget::row::with_capacity(3)
+                .push(widget::text::body(fl!("upcoming-events-section")))
+                .push(widget::horizontal_space())
+                .push(widget::dropdown(UPCOMING_COUNT_OPTIONS, count_idx, Message::SetUpcomingEventsCount)
+                    .width(Length::Fixed(80.0)))
+                .align_y(cosmic::iced::Alignment::Center)
+                .width(Length::Fill)
+                .apply(widget::container)
+                .padding(space.space_xs)
+                .width(Length::Fill)
+                .class(cosmic::theme::Container::List)
         );
 
         // Calendars navigation row
@@ -189,18 +269,20 @@ impl AppModel {
         };
         let calendar_summary = format!("{} enabled", enabled_count);
 
-        content = content.add(
-            settings::item_row(vec![
-                widget::text::body(fl!("calendars-section")).into(),
-                widget::horizontal_space().into(),
-                widget::text::body(calendar_summary).into(),
-                widget::icon::from_name("go-next-symbolic").size(16).into(),
-            ])
-            .apply(widget::container)
-            .class(cosmic::theme::Container::List)
-            .apply(widget::button::custom)
-            .padding(0)
-            .class(cosmic::theme::Button::Transparent)
+        content = content.push(
+            widget::button::custom(
+                widget::row::with_capacity(4)
+                    .push(widget::text::body(fl!("calendars-section")))
+                    .push(widget::horizontal_space())
+                    .push(widget::text::body(calendar_summary))
+                    .push(widget::icon::from_name("go-next-symbolic").size(16))
+                    .spacing(space.space_xs)
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+                    .padding(space.space_xs)
+            )
+            .width(Length::Fill)
+            .class(cosmic::theme::Button::MenuItem)
             .on_press(Message::Navigate(PopupPage::Calendars))
         );
 
@@ -210,12 +292,12 @@ impl AppModel {
     /// Calendars selection page
     fn view_calendars_page(&self) -> Element<'_, Message> {
         let space = spacing();
-        let mut content = widget::list_column()
-            .padding(space.space_xxxs)
-            .spacing(space.space_none);
+        let mut content = widget::column::with_capacity(2 + self.available_calendars.len())
+            .padding(space.space_xs)
+            .spacing(space.space_xs);
 
         // Back button header
-        content = content.add(
+        content = content.push(
             widget::column::with_capacity(2)
                 .push(
                     widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
@@ -228,7 +310,6 @@ impl AppModel {
                 )
                 .push(widget::text::title4(fl!("calendars-section")))
                 .spacing(space.space_xxxs)
-                .width(Length::Shrink)
         );
 
         // Calendar toggles
@@ -237,14 +318,63 @@ impl AppModel {
                 || self.config.enabled_calendar_uids.contains(&calendar.uid);
 
             let uid = calendar.uid.clone();
-            content = content.add(settings::item(
-                &calendar.display_name,
-                widget::toggler(is_enabled).on_toggle(move |_| Message::ToggleCalendar(uid.clone())),
-            ));
+
+            // Build row with optional color indicator
+            let mut row = widget::row::with_capacity(4)
+                .spacing(space.space_xs)
+                .align_y(cosmic::iced::Alignment::Center);
+
+            // Add color circle if color is available
+            if let Some(color) = &calendar.color {
+                if let Some(parsed_color) = parse_hex_color(color) {
+                    row = row.push(
+                        widget::container(widget::Space::new(0, 0))
+                            .width(Length::Fixed(12.0))
+                            .height(Length::Fixed(12.0))
+                            .class(cosmic::theme::Container::custom(move |_theme| {
+                                cosmic::iced_widget::container::Style {
+                                    background: Some(cosmic::iced::Background::Color(parsed_color)),
+                                    border: cosmic::iced::Border {
+                                        radius: 6.0.into(),
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                }
+                            }))
+                    );
+                }
+            }
+
+            row = row
+                .push(widget::text::body(&calendar.display_name))
+                .push(widget::horizontal_space())
+                .push(widget::toggler(is_enabled)
+                    .on_toggle(move |_| Message::ToggleCalendar(uid.clone())));
+
+            content = content.push(
+                row
+                    .width(Length::Fill)
+                    .apply(widget::container)
+                    .padding(space.space_xs)
+                    .width(Length::Fill)
+                    .class(cosmic::theme::Container::List)
+            );
         }
 
         content.into()
     }
+}
+
+/// Parse a hex color string (e.g., "#62a0ea") to an iced Color
+fn parse_hex_color(hex: &str) -> Option<cosmic::iced::Color> {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some(cosmic::iced::Color::from_rgb8(r, g, b))
 }
 
 /// Format a duration as relative time (e.g., "In 2d 3h" or "In 2h 30m")
@@ -284,10 +414,11 @@ pub enum Message {
     TogglePopup,
     PopupClosed(Id),
     UpdateConfig(Config),
-    MeetingUpdated(Option<Meeting>),
+    MeetingsUpdated(Vec<Meeting>),
     CalendarsLoaded(Vec<CalendarInfo>),
     ToggleCalendar(String),
     SelectDisplayFormat(usize),
+    SetUpcomingEventsCount(usize),
     Navigate(PopupPage),
 }
 
@@ -326,6 +457,7 @@ impl cosmic::Application for AppModel {
             .unwrap_or_default();
 
         let enabled_uids = config.enabled_calendar_uids.clone();
+        let upcoming_count = config.upcoming_events_count as usize;
 
         // Construct the app model with the runtime's core.
         let app = AppModel {
@@ -342,8 +474,8 @@ impl cosmic::Application for AppModel {
         );
 
         let meetings_task = Task::perform(
-            async move { crate::calendar::get_next_meeting(&enabled_uids).await },
-            |meeting| Message::MeetingUpdated(meeting).into(),
+            async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await },
+            |meetings| Message::MeetingsUpdated(meetings).into(),
         );
 
         (app, Task::batch([calendars_task, meetings_task]))
@@ -360,7 +492,7 @@ impl cosmic::Application for AppModel {
     /// be drawn using the `view_window` method.
     fn view(&self) -> Element<'_, Self::Message> {
         let space = spacing();
-        let text = if let Some(meeting) = &self.next_meeting {
+        let text = if let Some(meeting) = self.upcoming_meetings.first() {
             self.format_meeting_text(meeting)
         } else {
             "No meetings".to_string()
@@ -402,6 +534,7 @@ impl cosmic::Application for AppModel {
         struct CalendarSubscription;
 
         let enabled_uids = self.config.enabled_calendar_uids.clone();
+        let upcoming_count = self.config.upcoming_events_count as usize;
 
         Subscription::batch(vec![
             // Periodically refresh calendar data
@@ -411,8 +544,8 @@ impl cosmic::Application for AppModel {
                     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
                     loop {
                         interval.tick().await;
-                        let meeting = crate::calendar::get_next_meeting(&enabled_uids).await;
-                        let _ = channel.send(Message::MeetingUpdated(meeting)).await;
+                        let meetings = crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await;
+                        let _ = channel.send(Message::MeetingsUpdated(meetings)).await;
                     }
                 }),
             ),
@@ -433,8 +566,8 @@ impl cosmic::Application for AppModel {
             Message::UpdateConfig(config) => {
                 self.config = config;
             }
-            Message::MeetingUpdated(meeting) => {
-                self.next_meeting = meeting;
+            Message::MeetingsUpdated(meetings) => {
+                self.upcoming_meetings = meetings;
             }
             Message::CalendarsLoaded(calendars) => {
                 self.available_calendars = calendars;
@@ -463,9 +596,10 @@ impl cosmic::Application for AppModel {
 
                 // Refresh meetings with new filter
                 let enabled_uids = self.config.enabled_calendar_uids.clone();
+                let upcoming_count = self.config.upcoming_events_count as usize;
                 return Task::perform(
-                    async move { crate::calendar::get_next_meeting(&enabled_uids).await },
-                    |meeting| Message::MeetingUpdated(meeting).into(),
+                    async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await },
+                    |meetings| Message::MeetingsUpdated(meetings).into(),
                 );
             }
             Message::SelectDisplayFormat(idx) => {
@@ -477,6 +611,19 @@ impl cosmic::Application for AppModel {
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }
+            }
+            Message::SetUpcomingEventsCount(count) => {
+                self.config.upcoming_events_count = count.min(10) as u8;
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+                // Refresh meetings with new count
+                let enabled_uids = self.config.enabled_calendar_uids.clone();
+                let upcoming_count = self.config.upcoming_events_count as usize;
+                return Task::perform(
+                    async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await },
+                    |meetings| Message::MeetingsUpdated(meetings).into(),
+                );
             }
             Message::Navigate(page) => {
                 self.current_page = page;

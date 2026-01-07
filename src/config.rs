@@ -18,7 +18,7 @@ pub enum DisplayFormat {
 }
 
 
-#[derive(Debug, Default, Clone, CosmicConfigEntry, Eq, PartialEq)]
+#[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
 #[version = 1]
 pub struct Config {
     /// Calendar UIDs that are enabled for display.
@@ -26,4 +26,16 @@ pub struct Config {
     pub enabled_calendar_uids: Vec<String>,
     /// How to display the meeting time in the panel.
     pub display_format: DisplayFormat,
+    /// Number of upcoming events to show in the popup (0-10).
+    pub upcoming_events_count: u8,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            enabled_calendar_uids: Vec::new(),
+            display_format: DisplayFormat::default(),
+            upcoming_events_count: 3,
+        }
+    }
 }

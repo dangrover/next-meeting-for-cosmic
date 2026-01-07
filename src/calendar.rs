@@ -17,6 +17,7 @@ pub struct Meeting {
 pub struct CalendarInfo {
     pub uid: String,
     pub display_name: String,
+    pub color: Option<String>,
 }
 
 /// Fetch available calendars from Evolution Data Server via D-Bus
@@ -29,19 +30,20 @@ pub async fn get_available_calendars() -> Vec<CalendarInfo> {
     get_calendars_from_dbus(&conn).await.unwrap_or_default()
 }
 
-/// Fetch the next meeting from Evolution Data Server via D-Bus
+/// Fetch upcoming meetings from Evolution Data Server via D-Bus
 /// If enabled_uids is empty, all calendars are queried.
 /// Otherwise, only calendars with UIDs in the list are queried.
-pub async fn get_next_meeting(enabled_uids: &[String]) -> Option<Meeting> {
+/// Returns up to `limit` meetings (use limit=0 for just the next meeting info).
+pub async fn get_upcoming_meetings(enabled_uids: &[String], limit: usize) -> Vec<Meeting> {
     let conn = match Connection::session().await {
         Ok(c) => c,
-        Err(_) => return None,
+        Err(_) => return Vec::new(),
     };
 
-    get_next_meeting_from_dbus(&conn, enabled_uids).await
+    get_meetings_from_dbus(&conn, enabled_uids, limit.max(1)).await
 }
 
-async fn get_next_meeting_from_dbus(conn: &Connection, enabled_uids: &[String]) -> Option<Meeting> {
+async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limit: usize) -> Vec<Meeting> {
     // Evolution Data Server workflow:
     // 1. Get calendar source UIDs from D-Bus SourceManager
     // 2. For each source, use CalendarFactory.OpenCalendar to get a calendar object
@@ -49,22 +51,28 @@ async fn get_next_meeting_from_dbus(conn: &Connection, enabled_uids: &[String]) 
     // 4. Parse the iCalendar objects
 
     // Step 1: Get calendar source UIDs from D-Bus SourceManager
-    let mut source_uids = get_calendar_source_uids(conn).await?;
+    let mut source_uids = match get_calendar_source_uids(conn).await {
+        Some(uids) => uids,
+        None => return Vec::new(),
+    };
 
     // Filter to only enabled calendars if a filter is specified
     if !enabled_uids.is_empty() {
         source_uids.retain(|uid| enabled_uids.contains(uid));
     }
-    
+
     // Step 2: Open calendars and get events
-    let calendar_factory_proxy = zbus::Proxy::new(
+    let calendar_factory_proxy = match zbus::Proxy::new(
         conn,
         "org.gnome.evolution.dataserver.Calendar8",
         "/org/gnome/evolution/dataserver/CalendarFactory",
         "org.gnome.evolution.dataserver.CalendarFactory",
     )
     .await
-    .ok()?;
+    {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
 
     let mut all_meetings: Vec<Meeting> = Vec::new();
     let now = Local::now();
@@ -177,9 +185,9 @@ async fn get_next_meeting_from_dbus(conn: &Connection, enabled_uids: &[String]) 
         }
     }
 
-    // Sort and return the next meeting
+    // Sort and return up to `limit` meetings
     all_meetings.sort_by_key(|m| m.start);
-    all_meetings.into_iter().next()
+    all_meetings.into_iter().take(limit).collect()
 }
 
 /// Get calendar source UIDs from Evolution Data Server via D-Bus
@@ -291,7 +299,8 @@ async fn get_calendars_from_dbus(conn: &Connection) -> Option<Vec<CalendarInfo>>
                 // Only include if it has a [Calendar] section
                 if data.contains("[Calendar]") {
                     let display_name = parse_display_name(&data).unwrap_or_else(|| uid.clone());
-                    calendars.push(CalendarInfo { uid, display_name });
+                    let color = parse_color(&data);
+                    calendars.push(CalendarInfo { uid, display_name, color });
                 }
             }
         }
@@ -309,6 +318,17 @@ fn parse_display_name(data: &str) -> Option<String> {
         let line = line.trim();
         if line.starts_with("DisplayName=") {
             return Some(line.strip_prefix("DisplayName=")?.to_string());
+        }
+    }
+    None
+}
+
+/// Parse Color from INI-format source data (e.g., Color=#62a0ea)
+fn parse_color(data: &str) -> Option<String> {
+    for line in data.lines() {
+        let line = line.trim();
+        if line.starts_with("Color=") {
+            return Some(line.strip_prefix("Color=")?.to_string());
         }
     }
     None
