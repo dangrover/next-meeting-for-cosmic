@@ -10,50 +10,62 @@ env:
 
 jobs:
   build-deb:
-    name: Build Debian Package
+    name: Build Debian Package (${{ matrix.arch }})
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install dependencies
+      - name: Vendor dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libssl-dev pkg-config libxkbcommon-dev \
-            debhelper devscripts just build-essential cargo rustc
-
-      - name: Vendor dependencies
-        run: just vendor
+          sudo apt-get install -y cargo
+          mkdir -p .cargo
+          cargo vendor --sync Cargo.toml | head -n -1 > .cargo/config.toml
+          echo 'directory = "vendor"' >> .cargo/config.toml
+          echo >> .cargo/config.toml
+          tar pcf vendor.tar vendor
+          rm -rf vendor
 
       - name: Build Debian package
-        run: dpkg-buildpackage -us -uc -b
-
-      - name: Move .deb to workspace
-        run: mv ../*.deb .
+        uses: andy5995/gh-action-build-deb@v1
+        with:
+          platform: ${{ matrix.arch }}
+          codename: noble
+          args: --no-sign
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debian-package
-          path: "*.deb"
+          name: debian-package-${{ matrix.arch }}
+          path: output/*.deb
 
   build-flatpak:
-    name: Build Flatpak
+    name: Build Flatpak (${{ matrix.arch }})
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
     container:
       image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
       options: --privileged
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install QEMU for cross-compilation
+        if: matrix.arch == 'aarch64'
+        run: |
+          dnf install -y qemu-user-static
+
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: cosmic-next-meeting.flatpak
+          bundle: cosmic-next-meeting-${{ matrix.arch }}.flatpak
           manifest-path: com.dangrover.next-meeting-app.json
-          cache-key: flatpak-builder-${{ github.sha }}
+          arch: ${{ matrix.arch }}
+          cache-key: flatpak-builder-${{ matrix.arch }}-${{ github.sha }}
 
   release:
     name: Create Release
@@ -64,17 +76,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Debian package
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: debian-package
           path: artifacts/
+          merge-multiple: true
 
-      - name: Download Flatpak bundle
-        uses: actions/download-artifact@v4
-        with:
-          name: cosmic-next-meeting.flatpak
-          path: artifacts/
+      - name: List artifacts
+        run: find artifacts/ -type f
 
       - name: Get version from tag
         id: version
@@ -88,5 +97,5 @@ jobs:
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
           generate_release_notes: true
           files: |
-            artifacts/*.deb
-            artifacts/*.flatpak
+            artifacts/**/*.deb
+            artifacts/**/*.flatpak
