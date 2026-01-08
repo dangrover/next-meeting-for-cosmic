@@ -5,6 +5,7 @@ mod calendar;
 mod config;
 mod formatting;
 mod i18n;
+mod widgets;
 
 fn main() -> cosmic::iced::Result {
     // Get the system's preferred languages.
