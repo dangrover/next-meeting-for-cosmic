@@ -80,6 +80,50 @@ pub fn format_relative_time(duration: chrono::Duration) -> String {
     }
 }
 
+/// Format a backend name for display (e.g., "caldav" → "CalDAV")
+pub fn format_backend_name(backend: &str) -> &'static str {
+    match backend.to_lowercase().as_str() {
+        "local" => "Local",
+        "caldav" => "CalDAV",
+        "google" => "Google",
+        "weather" => "Weather",
+        "webcal" => "Web calendar",
+        "contacts" => "Contacts",
+        "birthdays" => "Birthdays",
+        _ => "Remote",
+    }
+}
+
+/// Format an ISO 8601 timestamp as a relative "Updated X ago" string
+pub fn format_last_updated(iso_timestamp: &str) -> String {
+    use chrono::{DateTime, Utc};
+
+    let Ok(timestamp) = DateTime::parse_from_rfc3339(iso_timestamp).or_else(|_| {
+        // Try without timezone (assume UTC)
+        format!("{}+00:00", iso_timestamp.trim_end_matches('Z'))
+            .parse::<DateTime<chrono::FixedOffset>>()
+    }) else {
+        return fl!("updated-unknown");
+    };
+
+    let now = Utc::now();
+    let duration = now.signed_duration_since(timestamp.with_timezone(&Utc));
+    let secs = duration.num_seconds();
+
+    if secs < 60 {
+        fl!("updated-just-now")
+    } else if secs < 3600 {
+        let minutes = secs / 60;
+        fl!("updated-minutes-ago", minutes = minutes)
+    } else if secs < 86400 {
+        let hours = secs / 3600;
+        fl!("updated-hours-ago", hours = hours)
+    } else {
+        let days = secs / 86400;
+        fl!("updated-days-ago", days = days)
+    }
+}
+
 /// Parse a hex color string (e.g., "#62a0ea") to an iced Color
 pub fn parse_hex_color(hex: &str) -> Option<cosmic::iced::Color> {
     let hex = hex.trim_start_matches('#');

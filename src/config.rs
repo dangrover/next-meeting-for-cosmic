@@ -68,6 +68,10 @@ pub enum EventStatusFilter {
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
 #[version = 1]
 pub struct Config {
+    /// Whether to automatically refresh calendars from remote servers.
+    pub auto_refresh_enabled: bool,
+    /// Interval in minutes for automatic refresh (5, 10, 15, 30).
+    pub auto_refresh_interval_minutes: u8,
     /// Calendar UIDs that are enabled for display.
     /// Empty list means all calendars are enabled.
     pub enabled_calendar_uids: Vec<String>,
@@ -101,6 +105,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            auto_refresh_enabled: false,
+            auto_refresh_interval_minutes: 10,
             enabled_calendar_uids: Vec::new(),
             display_format: DisplayFormat::default(),
             upcoming_events_count: 3,

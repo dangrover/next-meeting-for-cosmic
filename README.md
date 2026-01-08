@@ -10,11 +10,11 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 ## Features
 
 - 📅 **See your next meeting at a glance** — Shows the meeting title, time, and location right in your panel
-- 🔗 **One-click join** — Detects video call URLs (Google Meet, Zoom, Teams, Webex, or any other app) and shows a "Join" button.
+- 🔗 **One-click join** — Detects video call URLs and shows a "Join" button (Google Meet, Zoom, Teams, Webex out of the box, plus any others you add). 
 - 🎚️ **Flexible formatting options**:
     * Show the absolute time or relative time until (e.g. "in 2h 30m").
     * See room names and locations for in-person meetings
-    * Indicate which calendar with colored dot
+    * Indicate which calendar with colored dot (e.g. to distinguish work vs personal). 
 - 🔍 **Smart filtering** — Filter by calendar, all-day events, or your acceptance status
 - 🌐 **Works with Evolution** — Works with all your Evolution Data Server calendars (GNOME Online Accounts, local calendars, etc.).
 
@@ -22,6 +22,11 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 ## Installation
 
 Download the latest release from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases).
+
+### Setting up your calendars
+*  COSMIC DE doesn't have any native calendar app or way to set up online calendars (though one is [apparently in progress](https://github.com/cosmic-utils/calendar)), so you'll need to use Evolution or gnome-online-accounts to do this. 
+* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). The GNOME Calendar app and Evolution both qualify here. 
+Thunderbird won't work; you can set up the same calendars in EDS and still have them open in Thunderbird when you click them in the applet, though. The applet will honor whatever calendar app is configured as the system calendar app. 
 
 ### Flatpak (Recommended)
 

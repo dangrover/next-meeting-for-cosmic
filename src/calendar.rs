@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Duration, Local, NaiveDateTime, TimeZone};
+use futures_util::StreamExt;
 use ical::parser::ical::IcalParser;
 use regex::Regex;
+use rrule::{RRuleSet, Tz};
 use zbus::{Connection, zvariant};
 
 /// User's attendance status for a meeting
@@ -40,6 +42,22 @@ pub struct CalendarInfo {
     pub uid: String,
     pub display_name: String,
     pub color: Option<String>,
+    /// Last update timestamp from EDS (ISO 8601 format)
+    pub last_synced: Option<String>,
+    /// Backend type (e.g., "local", "caldav", "google")
+    pub backend: Option<String>,
+}
+
+impl CalendarInfo {
+    /// Returns true if this calendar is a valid source of meetings.
+    /// Some calendars (contacts, weather, birthdays) don't contain actual meetings.
+    #[must_use]
+    pub fn is_meeting_source(&self) -> bool {
+        match self.backend.as_deref() {
+            Some("contacts") | Some("weather") | Some("birthdays") => false,
+            _ => true,
+        }
+    }
 }
 
 /// Fetch available calendars from Evolution Data Server via D-Bus
@@ -55,6 +73,172 @@ pub async fn get_available_calendars() -> Vec<CalendarInfo> {
     };
 
     get_calendars_from_dbus(&conn).await.unwrap_or_default()
+}
+
+/// Refresh all calendars by triggering an upstream sync with remote servers.
+/// This calls the Refresh D-Bus method on each calendar, which forces EDS to
+/// fetch the latest data from CalDAV/Google/etc servers.
+/// If enabled_uids is empty, all calendars are refreshed.
+pub async fn refresh_calendars(enabled_uids: &[String]) {
+    let conn = match Connection::session().await {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    // Get calendar source UIDs
+    let mut source_uids = match get_calendar_source_uids(&conn).await {
+        Some(uids) => uids,
+        None => return,
+    };
+
+    // Filter to only enabled calendars if specified
+    if !enabled_uids.is_empty() {
+        source_uids.retain(|uid| enabled_uids.contains(uid));
+    }
+
+    // Open calendar factory
+    let calendar_factory_proxy = match zbus::Proxy::new(
+        &conn,
+        "org.gnome.evolution.dataserver.Calendar8",
+        "/org/gnome/evolution/dataserver/CalendarFactory",
+        "org.gnome.evolution.dataserver.CalendarFactory",
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+
+    // Refresh each calendar
+    for source_uid in source_uids {
+        // Open the calendar
+        let (calendar_path, bus_name): (String, String) = match calendar_factory_proxy
+            .call_method("OpenCalendar", &(source_uid.as_str(),))
+            .await
+        {
+            Ok(reply) => match reply.body::<(String, String)>() {
+                Ok((path, bus)) => (path, bus),
+                Err(_) => continue,
+            },
+            Err(_) => continue,
+        };
+
+        // Get a proxy to the calendar
+        let calendar_proxy = match zbus::Proxy::new(
+            &conn,
+            bus_name.as_str(),
+            calendar_path.as_str(),
+            "org.gnome.evolution.dataserver.Calendar",
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        // Call Refresh method (fire and forget - don't wait for completion)
+        let _ = calendar_proxy.call_method("Refresh", &()).await;
+    }
+}
+
+/// Watch for calendar changes via D-Bus `PropertiesChanged` signals.
+/// Returns a stream that yields () whenever any calendar's properties change.
+/// This allows detecting when EDS has updated calendar data after a sync.
+pub async fn watch_calendar_changes(
+    enabled_uids: Vec<String>,
+    sender: tokio::sync::mpsc::Sender<()>,
+) {
+    let Ok(conn) = Connection::session().await else {
+        return;
+    };
+
+    // Get calendar source UIDs
+    let Some(mut source_uids) = get_calendar_source_uids(&conn).await else {
+        return;
+    };
+
+    // Filter to enabled calendars if specified
+    if !enabled_uids.is_empty() {
+        source_uids.retain(|uid| enabled_uids.contains(uid));
+    }
+
+    // Open calendar factory
+    let Ok(calendar_factory_proxy) = zbus::Proxy::new(
+        &conn,
+        "org.gnome.evolution.dataserver.Calendar8",
+        "/org/gnome/evolution/dataserver/CalendarFactory",
+        "org.gnome.evolution.dataserver.CalendarFactory",
+    )
+    .await
+    else {
+        return;
+    };
+
+    // First collect all calendar (path, bus) pairs
+    let mut calendar_info: Vec<(String, String)> = Vec::new();
+    for source_uid in &source_uids {
+        let (calendar_path, bus_name): (String, String) = match calendar_factory_proxy
+            .call_method("OpenCalendar", &(source_uid.as_str(),))
+            .await
+        {
+            Ok(reply) => match reply.body::<(String, String)>() {
+                Ok((path, bus)) => (path, bus),
+                Err(_) => continue,
+            },
+            Err(_) => continue,
+        };
+        calendar_info.push((calendar_path, bus_name));
+    }
+
+    if calendar_info.is_empty() {
+        return;
+    }
+
+    // Spawn a watcher task for each calendar
+    // Each task watches for PropertiesChanged and sends to the shared channel
+    let mut handles = Vec::new();
+    for (calendar_path, bus_name) in calendar_info {
+        let sender_clone = sender.clone();
+        let conn_clone = conn.clone();
+        handles.push(tokio::spawn(async move {
+            watch_single_calendar(conn_clone, bus_name, calendar_path, sender_clone).await;
+        }));
+    }
+
+    // Wait for all watcher tasks (they run indefinitely until cancelled)
+    for handle in handles {
+        let _ = handle.await;
+    }
+}
+
+/// Watch a single calendar for `PropertiesChanged` signals
+async fn watch_single_calendar(
+    conn: Connection,
+    bus_name: String,
+    calendar_path: String,
+    sender: tokio::sync::mpsc::Sender<()>,
+) {
+    // Create a proxy for the Properties interface on this calendar
+    let Ok(props_proxy) = zbus::Proxy::new(
+        &conn,
+        bus_name.as_str(),
+        calendar_path.as_str(),
+        "org.freedesktop.DBus.Properties",
+    )
+    .await
+    else {
+        return;
+    };
+
+    // Subscribe to PropertiesChanged signals
+    let Ok(mut stream) = props_proxy.receive_signal("PropertiesChanged").await else {
+        return;
+    };
+
+    // Listen for signals and notify the channel
+    while stream.next().await.is_some() {
+        let _ = sender.try_send(());
+    }
 }
 
 /// Fetch upcoming meetings from Evolution Data Server via D-Bus
@@ -117,7 +301,6 @@ async fn get_meetings_from_dbus(
     };
 
     let mut all_meetings: Vec<Meeting> = Vec::new();
-    let now = Local::now();
 
     for source_uid in source_uids {
         // Open the calendar for this source
@@ -166,10 +349,22 @@ async fn get_meetings_from_dbus(
             user_emails.push(email);
         }
 
-        // GetObjectList takes a query string - empty string gets all events
-        // We could use ECalQuery format for filtering, but empty works for now
+        // GetObjectList takes an S-expression query string
+        // Use occur-in-time-range? to expand recurring events into instances
+        // Query from now to 30 days in the future
+        let now = Local::now();
+        let end = now + chrono::Duration::days(30);
+        // Convert to UTC for the query (EDS expects UTC timestamps)
+        let now_utc = now.with_timezone(&chrono::Utc);
+        let end_utc = end.with_timezone(&chrono::Utc);
+        let query = format!(
+            "(occur-in-time-range? (make-time \"{}\") (make-time \"{}\"))",
+            now_utc.format("%Y%m%dT%H%M%SZ"),
+            end_utc.format("%Y%m%dT%H%M%SZ")
+        );
+
         let ics_objects: Vec<String> =
-            match calendar_proxy.call_method("GetObjectList", &("",)).await {
+            match calendar_proxy.call_method("GetObjectList", &(query.as_str(),)).await {
                 Ok(reply) => match reply.body::<Vec<String>>() {
                     Ok(objects) => objects,
                     Err(_) => continue,
@@ -208,7 +403,152 @@ async fn get_meetings_from_dbus(
                         has_date_param || value_is_date
                     });
 
-                    // Get start and end times
+                    // Check for RRULE (recurring event)
+                    let rrule_prop = event.properties.iter().find(|p| p.name == "RRULE");
+
+                    // Check for RECURRENCE-ID (this is a modified instance, not the master)
+                    let recurrence_id = event.properties.iter().find(|p| p.name == "RECURRENCE-ID");
+
+                    // Parse attendance status from ATTENDEE properties
+                    let attendance_status =
+                        parse_attendance_status(&event.properties, &user_emails);
+
+                    // Extract common meeting properties
+                    let uid = event
+                        .properties
+                        .iter()
+                        .find(|p| p.name == "UID")
+                        .and_then(|p| p.value.as_ref())
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+
+                    let title = event
+                        .properties
+                        .iter()
+                        .find(|p| p.name == "SUMMARY")
+                        .and_then(|p| p.value.as_ref())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "Untitled Event".to_string());
+
+                    let location = event
+                        .properties
+                        .iter()
+                        .find(|p| p.name == "LOCATION")
+                        .and_then(|p| p.value.as_ref())
+                        .map(|s| s.to_string());
+
+                    let description = event
+                        .properties
+                        .iter()
+                        .find(|p| p.name == "DESCRIPTION")
+                        .and_then(|p| p.value.as_ref())
+                        .map(|s| s.to_string());
+
+                    // If this is a modified instance (has RECURRENCE-ID), use it directly
+                    // The DTSTART in a modified instance is the actual occurrence time
+                    if recurrence_id.is_some() {
+                        let start_dt = dtstart_prop
+                            .and_then(|p| p.value.as_ref())
+                            .and_then(|v| parse_ical_datetime(v, &now));
+
+                        let end_dt = event
+                            .properties
+                            .iter()
+                            .find(|p| p.name == "DTEND")
+                            .and_then(|p| p.value.as_ref())
+                            .and_then(|v| parse_ical_datetime(v, &now));
+
+                        if let Some(start) = start_dt {
+                            let end =
+                                end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
+
+                            if start > now && start < end {
+                                all_meetings.push(Meeting {
+                                    uid: uid.clone(),
+                                    title: title.clone(),
+                                    start,
+                                    end,
+                                    location: location.clone(),
+                                    description: description.clone(),
+                                    calendar_uid: source_uid.clone(),
+                                    is_all_day,
+                                    attendance_status,
+                                });
+                            }
+                        }
+                        continue;
+                    }
+
+                    // If this is a recurring event (has RRULE), expand it
+                    if let Some(rrule_val) = rrule_prop.and_then(|p| p.value.as_ref()) {
+                        // Get DTSTART with timezone info for rrule
+                        let dtstart_with_tz = dtstart_prop.map(|p| {
+                            let tz = extract_timezone_from_prop(p);
+                            let value = p.value.as_deref().unwrap_or_default();
+                            (value, tz)
+                        });
+
+                        // Get duration from DTEND or DURATION
+                        let duration = {
+                            let start_dt = dtstart_prop
+                                .and_then(|p| p.value.as_ref())
+                                .and_then(|v| parse_ical_datetime(v, &now));
+                            let end_dt = event
+                                .properties
+                                .iter()
+                                .find(|p| p.name == "DTEND")
+                                .and_then(|p| p.value.as_ref())
+                                .and_then(|v| parse_ical_datetime(v, &now));
+
+                            match (start_dt, end_dt) {
+                                (Some(s), Some(e)) => e.signed_duration_since(s),
+                                _ => Duration::hours(1),
+                            }
+                        };
+
+                        // Collect EXDATE values
+                        let exdates: Vec<&str> = event
+                            .properties
+                            .iter()
+                            .filter(|p| p.name == "EXDATE")
+                            .filter_map(|p| p.value.as_deref())
+                            .collect();
+
+                        // Expand the RRULE
+                        if let Some((dtstart_val, tz)) = dtstart_with_tz {
+                            let occurrences = expand_rrule(
+                                dtstart_val,
+                                rrule_val,
+                                &exdates,
+                                tz.as_deref(),
+                                now,
+                                end,
+                            );
+
+                            for occurrence_start in occurrences {
+                                let occurrence_end = occurrence_start + duration;
+
+                                all_meetings.push(Meeting {
+                                    uid: format!(
+                                        "{}@{}",
+                                        uid,
+                                        occurrence_start.format("%Y%m%dT%H%M%S")
+                                    ),
+                                    title: title.clone(),
+                                    start: occurrence_start,
+                                    end: occurrence_end,
+                                    location: location.clone(),
+                                    description: description.clone(),
+                                    calendar_uid: source_uid.clone(),
+                                    is_all_day,
+                                    attendance_status,
+                                });
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Non-recurring event: use DTSTART directly
                     let start_dt = dtstart_prop
                         .and_then(|p| p.value.as_ref())
                         .and_then(|v| parse_ical_datetime(v, &now));
@@ -220,51 +560,18 @@ async fn get_meetings_from_dbus(
                         .and_then(|p| p.value.as_ref())
                         .and_then(|v| parse_ical_datetime(v, &now));
 
-                    // Parse attendance status from ATTENDEE properties
-                    let attendance_status =
-                        parse_attendance_status(&event.properties, &user_emails);
-
                     if let Some(start) = start_dt {
                         // Use end time if available, otherwise assume 1 hour duration
-                        let end = end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
+                        let meeting_end =
+                            end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
 
                         // Only include future meetings
                         if start > now {
-                            let uid = event
-                                .properties
-                                .iter()
-                                .find(|p| p.name == "UID")
-                                .and_then(|p| p.value.as_ref())
-                                .map(|s| s.to_string())
-                                .unwrap_or_default();
-
-                            let title = event
-                                .properties
-                                .iter()
-                                .find(|p| p.name == "SUMMARY")
-                                .and_then(|p| p.value.as_ref())
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| "Untitled Event".to_string());
-
-                            let location = event
-                                .properties
-                                .iter()
-                                .find(|p| p.name == "LOCATION")
-                                .and_then(|p| p.value.as_ref())
-                                .map(|s| s.to_string());
-
-                            let description = event
-                                .properties
-                                .iter()
-                                .find(|p| p.name == "DESCRIPTION")
-                                .and_then(|p| p.value.as_ref())
-                                .map(|s| s.to_string());
-
                             all_meetings.push(Meeting {
                                 uid,
                                 title,
                                 start,
-                                end,
+                                end: meeting_end,
                                 location,
                                 description,
                                 calendar_uid: source_uid.clone(),
@@ -393,11 +700,49 @@ async fn get_calendars_from_dbus(conn: &Connection) -> Option<Vec<CalendarInfo>>
             {
                 let display_name = parse_display_name(&data).unwrap_or_else(|| uid.clone());
                 let color = parse_color(&data);
+                let backend = parse_backend_name(&data);
                 calendars.push(CalendarInfo {
                     uid,
                     display_name,
                     color,
+                    last_synced: None, // Will be filled in below
+                    backend,
                 });
+            }
+        }
+    }
+
+    // Fetch last_synced (Revision) for each calendar
+    if let Ok(factory_proxy) = zbus::Proxy::new(
+        conn,
+        "org.gnome.evolution.dataserver.Calendar8",
+        "/org/gnome/evolution/dataserver/CalendarFactory",
+        "org.gnome.evolution.dataserver.CalendarFactory",
+    )
+    .await
+    {
+        for cal in &mut calendars {
+            if let Ok(reply) = factory_proxy
+                .call_method("OpenCalendar", &(cal.uid.as_str(),))
+                .await
+            {
+                if let Ok((calendar_path, bus_name)) = reply.body::<(String, String)>() {
+                    if let Ok(cal_proxy) = zbus::Proxy::new(
+                        conn,
+                        bus_name.as_str(),
+                        calendar_path.as_str(),
+                        "org.gnome.evolution.dataserver.Calendar",
+                    )
+                    .await
+                    {
+                        // Get the Revision property (format: "2026-01-08T04:19:20Z(0)")
+                        if let Ok(revision) = cal_proxy.get_property::<String>("Revision").await {
+                            // Extract just the timestamp part before the parentheses
+                            let timestamp = revision.split('(').next().unwrap_or(&revision);
+                            cal.last_synced = Some(timestamp.to_string());
+                        }
+                    }
+                }
             }
         }
     }
@@ -425,6 +770,23 @@ fn parse_color(data: &str) -> Option<String> {
         let line = line.trim();
         if line.starts_with("Color=") {
             return Some(line.strip_prefix("Color=")?.to_string());
+        }
+    }
+    None
+}
+
+/// Parse BackendName from INI-format source data (in [Calendar] section)
+fn parse_backend_name(data: &str) -> Option<String> {
+    // Look for BackendName= in the [Calendar] section
+    let mut in_calendar_section = false;
+    for line in data.lines() {
+        let line = line.trim();
+        if line == "[Calendar]" {
+            in_calendar_section = true;
+        } else if line.starts_with('[') {
+            in_calendar_section = false;
+        } else if in_calendar_section && line.starts_with("BackendName=") {
+            return Some(line.strip_prefix("BackendName=")?.to_string());
         }
     }
     None
@@ -551,6 +913,165 @@ fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<Dat
     }
 
     None
+}
+
+/// Extract timezone from an iCal property's TZID parameter
+fn extract_timezone_from_prop(prop: &ical::property::Property) -> Option<String> {
+    prop.params.as_ref().and_then(|params| {
+        params.iter().find_map(|(name, values)| {
+            if name == "TZID" {
+                values.first().cloned()
+            } else {
+                None
+            }
+        })
+    })
+}
+
+/// Parse an iCal timezone string to rrule Tz timezone
+fn parse_ical_timezone(tz_str: &str) -> Option<Tz> {
+    // Common IANA timezones (convert slashes to double underscores for rrule)
+    // The rrule crate uses constants like Tz::America__Los_Angeles
+    match tz_str {
+        // US timezones
+        "America/Los_Angeles" => Some(Tz::America__Los_Angeles),
+        "America/New_York" => Some(Tz::America__New_York),
+        "America/Chicago" => Some(Tz::America__Chicago),
+        "America/Denver" => Some(Tz::America__Denver),
+        "America/Phoenix" => Some(Tz::America__Phoenix),
+        "America/Detroit" => Some(Tz::America__Detroit),
+        "America/Indiana/Indianapolis" => Some(Tz::America__Indiana__Indianapolis),
+        "America/Anchorage" => Some(Tz::America__Anchorage),
+        // European timezones
+        "Europe/London" => Some(Tz::Europe__London),
+        "Europe/Paris" => Some(Tz::Europe__Paris),
+        "Europe/Berlin" => Some(Tz::Europe__Berlin),
+        "Europe/Amsterdam" => Some(Tz::Europe__Amsterdam),
+        "Europe/Rome" => Some(Tz::Europe__Rome),
+        "Europe/Madrid" => Some(Tz::Europe__Madrid),
+        // Asian timezones
+        "Asia/Tokyo" => Some(Tz::Asia__Tokyo),
+        "Asia/Shanghai" => Some(Tz::Asia__Shanghai),
+        "Asia/Singapore" => Some(Tz::Asia__Singapore),
+        "Asia/Hong_Kong" => Some(Tz::Asia__Hong_Kong),
+        "Asia/Kolkata" => Some(Tz::Asia__Kolkata),
+        "Asia/Dubai" => Some(Tz::Asia__Dubai),
+        // Pacific timezones
+        "Pacific/Honolulu" => Some(Tz::Pacific__Honolulu),
+        "Pacific/Auckland" => Some(Tz::Pacific__Auckland),
+        "Australia/Sydney" => Some(Tz::Australia__Sydney),
+        "Australia/Melbourne" => Some(Tz::Australia__Melbourne),
+        // UTC
+        "UTC" | "Etc/UTC" => Some(Tz::UTC),
+        // Windows timezone aliases
+        "Pacific Standard Time" | "Pacific Daylight Time" => Some(Tz::America__Los_Angeles),
+        "Eastern Standard Time" | "Eastern Daylight Time" => Some(Tz::America__New_York),
+        "Central Standard Time" | "Central Daylight Time" => Some(Tz::America__Chicago),
+        "Mountain Standard Time" | "Mountain Daylight Time" => Some(Tz::America__Denver),
+        _ => None,
+    }
+}
+
+/// Expand a recurring event (RRULE) into individual occurrences within a time range
+fn expand_rrule(
+    dtstart_val: &str,
+    rrule_val: &str,
+    exdates: &[&str],
+    tz_str: Option<&str>,
+    range_start: DateTime<Local>,
+    range_end: DateTime<Local>,
+) -> Vec<DateTime<Local>> {
+    // Parse the timezone
+    let tz = tz_str
+        .and_then(parse_ical_timezone)
+        .unwrap_or(Tz::UTC);
+
+    // Parse the DTSTART value (just the time part, e.g., "20251211T080000")
+    let dtstart_str = if dtstart_val.contains(':') {
+        dtstart_val.split(':').next_back().unwrap_or(dtstart_val)
+    } else {
+        dtstart_val
+    };
+
+    // Parse naive datetime
+    let naive_dt = if dtstart_str.len() == 8 && dtstart_str.chars().all(|c| c.is_ascii_digit()) {
+        // Date only
+        NaiveDateTime::parse_from_str(&format!("{}T000000", dtstart_str), "%Y%m%dT%H%M%S").ok()
+    } else {
+        NaiveDateTime::parse_from_str(dtstart_str.trim_end_matches('Z'), "%Y%m%dT%H%M%S").ok()
+    };
+
+    let Some(naive_dt) = naive_dt else {
+        return Vec::new();
+    };
+
+    // Build the DTSTART string for rrule crate
+    // Format: DTSTART;TZID=America/Los_Angeles:20251211T080000
+    let dtstart_for_rrule = if tz == Tz::UTC || dtstart_str.ends_with('Z') {
+        format!("DTSTART:{}Z", naive_dt.format("%Y%m%dT%H%M%S"))
+    } else {
+        format!("DTSTART;TZID={}:{}", tz, naive_dt.format("%Y%m%dT%H%M%S"))
+    };
+
+    // Build the full RRuleSet string
+    let mut rrule_str = format!("{}\nRRULE:{}", dtstart_for_rrule, rrule_val);
+
+    // Add EXDATE entries
+    for exdate in exdates {
+        // Parse exdate value - extract the datetime part
+        let exdate_val = if exdate.contains(':') {
+            exdate.split(':').next_back().unwrap_or(exdate)
+        } else {
+            exdate
+        };
+
+        // Try to get timezone from EXDATE if present
+        let exdate_tz = if exdate.contains("TZID=") {
+            exdate
+                .split(';')
+                .find(|p| p.starts_with("TZID="))
+                .and_then(|p| p.strip_prefix("TZID="))
+                .and_then(|tz_part| tz_part.split(':').next())
+                .and_then(parse_ical_timezone)
+                .unwrap_or(tz)
+        } else {
+            tz
+        };
+
+        // Format EXDATE for rrule crate
+        if exdate_tz == Tz::UTC || exdate_val.ends_with('Z') {
+            rrule_str.push_str(&format!("\nEXDATE:{}Z", exdate_val.trim_end_matches('Z')));
+        } else {
+            rrule_str.push_str(&format!(
+                "\nEXDATE;TZID={}:{}",
+                exdate_tz,
+                exdate_val.trim_end_matches('Z')
+            ));
+        }
+    }
+
+    // Parse the RRuleSet
+    let rrule_set: RRuleSet = match rrule_str.parse() {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+
+    // Convert range to the rrule timezone
+    let range_start_tz = range_start.with_timezone(&tz);
+    let range_end_tz = range_end.with_timezone(&tz);
+
+    // Get occurrences in the range (limit to 100 to avoid infinite loops)
+    let result = rrule_set
+        .after(range_start_tz)
+        .before(range_end_tz)
+        .all(100);
+
+    // Convert to local time
+    result
+        .dates
+        .into_iter()
+        .map(|dt| dt.with_timezone(&Local))
+        .collect()
 }
 
 /// Extract a meeting URL from the meeting's location or description fields

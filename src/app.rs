@@ -3,7 +3,10 @@
 use crate::calendar::{CalendarInfo, Meeting, extract_meeting_url, get_physical_location};
 use crate::config::{Config, DisplayFormat, JoinButtonVisibility, LocationVisibility};
 use crate::fl;
-use crate::formatting::{format_panel_time, format_relative_time, format_time, parse_hex_color};
+use crate::formatting::{
+    format_backend_name, format_last_updated, format_panel_time, format_relative_time,
+    format_time, parse_hex_color,
+};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::cosmic_theme;
 use cosmic::iced::{Length, Limits, Subscription, window::Id};
@@ -108,6 +111,8 @@ pub struct AppModel {
     config_context: Option<cosmic_config::Config>,
     /// Current page in popup navigation
     current_page: PopupPage,
+    /// Whether a calendar refresh is in progress.
+    is_refreshing: bool,
 }
 
 /// Navigation state for popup pages
@@ -117,6 +122,7 @@ pub enum PopupPage {
     Main,
     Settings,
     Calendars,
+    RefreshSettings,
     JoinButtonSettings,
     LocationSettings,
     CalendarIndicatorSettings,
@@ -159,6 +165,38 @@ impl AppModel {
                 }
             })
             .collect()
+    }
+
+    /// Get UIDs of enabled calendars that are valid meeting sources.
+    /// Filters out non-meeting calendars (contacts, weather, birthdays).
+    fn enabled_meeting_source_uids(&self) -> Vec<String> {
+        // If we don't have the calendars list yet, fall back to config
+        // (non-meeting calendars won't have VEVENT data anyway)
+        if self.available_calendars.is_empty() {
+            return self.config.enabled_calendar_uids.clone();
+        }
+
+        // If enabled_calendar_uids is empty, all meeting-source calendars are enabled
+        if self.config.enabled_calendar_uids.is_empty() {
+            self.available_calendars
+                .iter()
+                .filter(|c| c.is_meeting_source())
+                .map(|c| c.uid.clone())
+                .collect()
+        } else {
+            // Filter the enabled list to only include meeting sources
+            self.config
+                .enabled_calendar_uids
+                .iter()
+                .filter(|uid| {
+                    self.available_calendars
+                        .iter()
+                        .find(|c| &c.uid == *uid)
+                        .is_some_and(|c| c.is_meeting_source())
+                })
+                .cloned()
+                .collect()
+        }
     }
 
     /// Main popup page showing meeting info and settings nav
@@ -408,6 +446,16 @@ impl AppModel {
                 .spacing(space.space_xxs),
         );
 
+        // Refresh status summary
+        let refresh_summary = if self.config.auto_refresh_enabled {
+            fl!(
+                "refresh-summary-on",
+                interval = self.config.auto_refresh_interval_minutes
+            )
+        } else {
+            fl!("refresh-summary-off")
+        };
+
         // Calendars count for summary
         let total = self.available_calendars.len();
         let calendar_summary = if total == 0 {
@@ -531,6 +579,27 @@ impl AppModel {
                         )
                         .class(cosmic::theme::Button::Link)
                         .on_press(Message::Navigate(PopupPage::EventsToShowSettings)),
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill),
+            )
+            // Calendar sync
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("refresh-section")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::button::custom(
+                            widget::row::with_capacity(2)
+                                .push(widget::text::body(refresh_summary))
+                                .push(
+                                    widget::icon::from_name("go-next-symbolic").size(space.space_m),
+                                )
+                                .spacing(space.space_xxs)
+                                .align_y(cosmic::iced::Alignment::Center),
+                        )
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::RefreshSettings)),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
                     .width(Length::Fill),
@@ -701,9 +770,13 @@ impl AppModel {
         let mut calendars_list =
             widget::list_column().list_item_padding([space.space_xxs, space.space_xs]);
 
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+
         for calendar in &self.available_calendars {
-            let is_enabled = self.config.enabled_calendar_uids.is_empty()
-                || self.config.enabled_calendar_uids.contains(&calendar.uid);
+            let is_meeting_source = calendar.is_meeting_source();
+            let is_enabled = is_meeting_source
+                && (self.config.enabled_calendar_uids.is_empty()
+                    || self.config.enabled_calendar_uids.contains(&calendar.uid));
 
             let uid = calendar.uid.clone();
 
@@ -733,13 +806,40 @@ impl AppModel {
                 );
             }
 
+            // Calendar name and metadata in a column
+            let mut name_col = widget::column::with_capacity(2)
+                .spacing(space.space_xxxs);
+
+            name_col = name_col.push(widget::text::body(&calendar.display_name));
+
+            // Build secondary line with backend type and/or last updated time
+            let backend_str = calendar.backend.as_ref().map(|b| format_backend_name(b));
+            let updated_str = calendar.last_synced.as_ref().map(|s| format_last_updated(s));
+
+            let secondary_line = match (backend_str, updated_str) {
+                (Some(backend), Some(updated)) => Some(format!("{backend} · {updated}")),
+                (Some(backend), None) => Some(backend.to_string()),
+                (None, Some(updated)) => Some(updated),
+                (None, None) => None,
+            };
+
+            if let Some(line) = secondary_line {
+                name_col = name_col.push(widget::text::caption(line).class(secondary_text));
+            }
+
+            // Create toggler - disabled for non-meeting sources (contacts, weather, birthdays)
+            let toggler = if is_meeting_source {
+                widget::toggler(is_enabled)
+                    .on_toggle(move |_| Message::ToggleCalendar(uid.clone()))
+            } else {
+                // Non-meeting sources: show disabled toggle (no on_toggle = non-interactive)
+                widget::toggler(false)
+            };
+
             row = row
-                .push(widget::text::body(&calendar.display_name))
+                .push(name_col)
                 .push(widget::horizontal_space())
-                .push(
-                    widget::toggler(is_enabled)
-                        .on_toggle(move |_| Message::ToggleCalendar(uid.clone())),
-                );
+                .push(toggler);
 
             calendars_list = calendars_list.add(row);
         }
@@ -1220,6 +1320,108 @@ impl AppModel {
         content.into()
     }
 
+    /// Refresh settings page
+    fn view_refresh_settings_page(&self) -> Element<'_, Message> {
+        let space = spacing();
+        let mut content = widget::column::with_capacity(6)
+            .padding(space.space_xs)
+            .spacing(space.space_xs)
+            .width(Length::Fill);
+
+        // Back button header
+        content = content.push(
+            widget::column::with_capacity(2)
+                .push(
+                    widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                        .extra_small()
+                        .padding(space.space_none)
+                        .label(fl!("settings"))
+                        .spacing(space.space_xxxs)
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::Settings)),
+                )
+                .push(widget::text::title4(fl!("refresh-section")))
+                .spacing(space.space_xxs),
+        );
+
+        // Interval dropdown options
+        let interval_options = vec![
+            fl!("refresh-interval-5m"),
+            fl!("refresh-interval-10m"),
+            fl!("refresh-interval-15m"),
+            fl!("refresh-interval-30m"),
+        ];
+
+        // Current interval index
+        let interval_idx = match self.config.auto_refresh_interval_minutes {
+            5 => Some(0),
+            10 => Some(1),
+            15 => Some(2),
+            30 => Some(3),
+            _ => Some(1),
+        };
+
+        // Refresh settings group
+        let mut refresh_settings = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
+            // Auto-refresh toggle
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("auto-refresh")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::toggler(self.config.auto_refresh_enabled)
+                            .on_toggle(Message::SetAutoRefresh),
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill),
+            );
+
+        // Only show interval dropdown when auto-refresh is enabled
+        if self.config.auto_refresh_enabled {
+            refresh_settings = refresh_settings.add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("refresh-interval")))
+                    .push(widget::horizontal_space())
+                    .push(widget::dropdown(
+                        interval_options,
+                        interval_idx,
+                        Message::SetAutoRefreshInterval,
+                    ))
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill),
+            );
+        }
+
+        content = content.push(refresh_settings);
+
+        // Sync manually button
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+        content = content.push(widget::vertical_space().height(space.space_xs));
+
+        let sync_button = widget::button::icon(widget::icon::from_name("view-refresh-symbolic"))
+            .label(if self.is_refreshing {
+                fl!("refreshing")
+            } else {
+                fl!("refresh-now")
+            });
+        let sync_button = if self.is_refreshing {
+            sync_button
+        } else {
+            sync_button.on_press(Message::RefreshCalendars)
+        };
+
+        content = content.push(sync_button);
+
+        // Description at bottom with secondary color
+        content = content.push(widget::vertical_space().height(space.space_s));
+        content =
+            content.push(widget::text::caption(fl!("refresh-description")).class(secondary_text));
+        content = content.push(widget::vertical_space().height(space.space_m));
+
+        content.into()
+    }
+
     /// About page with app info
     fn view_about_page(&self) -> Element<'_, Message> {
         let space = spacing();
@@ -1364,6 +1566,11 @@ pub enum Message {
     UpdateEmail(usize, String),
     AddEmail,
     RemoveEmail(usize),
+    RefreshCalendars,
+    RefreshCompleted,
+    SetAutoRefresh(bool),
+    SetAutoRefreshInterval(usize),
+    CalendarChanged,
 }
 
 /// Create a COSMIC application from the app model
@@ -1573,7 +1780,8 @@ impl cosmic::Application for AppModel {
 
         // Add join button next to panel button if we should show it
         if let Some(url) = show_panel_join {
-            let font_size = space.space_xs + space.space_xxxs;
+            // Use space_xxs (8) + space_xxxs (4) = 12px for compact panel text
+            let font_size = space.space_xxs + space.space_xxxs;
             row = row.push(
                 widget::button::custom(
                     widget::text(fl!("join"))
@@ -1603,6 +1811,7 @@ impl cosmic::Application for AppModel {
             PopupPage::Main => self.view_main_page(),
             PopupPage::Settings => self.view_settings_page(),
             PopupPage::Calendars => self.view_calendars_page(),
+            PopupPage::RefreshSettings => self.view_refresh_settings_page(),
             PopupPage::JoinButtonSettings => self.view_join_button_settings_page(),
             PopupPage::LocationSettings => self.view_location_settings_page(),
             PopupPage::CalendarIndicatorSettings => self.view_calendar_indicator_settings_page(),
@@ -1635,6 +1844,8 @@ impl cosmic::Application for AppModel {
         let enabled_uids = self.config.enabled_calendar_uids.clone();
         let upcoming_count = self.config.upcoming_events_count as usize;
         let additional_emails = self.config.additional_emails.clone();
+        let auto_refresh_enabled = self.config.auto_refresh_enabled;
+        let auto_refresh_interval = self.config.auto_refresh_interval_minutes;
 
         // Create a unique subscription ID based on config values that affect filtering.
         // When these change, the subscription will be recreated with the new values.
@@ -1645,15 +1856,22 @@ impl cosmic::Application for AppModel {
         additional_emails.hash(&mut hasher);
         let config_hash = hasher.finish();
 
-        Subscription::batch(vec![
-            // Periodically refresh calendar and meeting data
+        // Create a separate hash for auto-refresh subscription
+        let mut refresh_hasher = std::collections::hash_map::DefaultHasher::new();
+        auto_refresh_enabled.hash(&mut refresh_hasher);
+        auto_refresh_interval.hash(&mut refresh_hasher);
+        enabled_uids.hash(&mut refresh_hasher);
+        let refresh_hash = refresh_hasher.finish();
+
+        let mut subscriptions = vec![
+            // Periodically read cached calendar and meeting data (every 60 seconds)
             Subscription::run_with_id(
                 config_hash,
                 cosmic::iced::stream::channel(4, move |mut channel| async move {
                     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
                     loop {
                         interval.tick().await;
-                        // Refresh both calendars and meetings
+                        // Read cached calendars and meetings
                         let calendars = crate::calendar::get_available_calendars().await;
                         let _ = channel.send(Message::CalendarsLoaded(calendars)).await;
                         let meetings = crate::calendar::get_upcoming_meetings(
@@ -1670,7 +1888,53 @@ impl cosmic::Application for AppModel {
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
                 .map(|update| Message::UpdateConfig(update.config)),
-        ])
+        ];
+
+        // Add auto-refresh subscription if enabled
+        if auto_refresh_enabled {
+            let refresh_uids = self.config.enabled_calendar_uids.clone();
+            subscriptions.push(Subscription::run_with_id(
+                refresh_hash,
+                cosmic::iced::stream::channel(2, move |mut channel| async move {
+                    let interval_secs = u64::from(auto_refresh_interval) * 60;
+                    let mut interval =
+                        tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                    // Skip the first immediate tick
+                    interval.tick().await;
+                    loop {
+                        interval.tick().await;
+                        // Trigger a refresh from remote servers
+                        crate::calendar::refresh_calendars(&refresh_uids).await;
+                        // Signal that refresh started (the 60-second subscription will pick up new data)
+                        let _ = channel.send(Message::RefreshCalendars).await;
+                    }
+                }),
+            ));
+        }
+
+        // Watch for D-Bus PropertiesChanged signals from EDS calendars
+        // This detects when calendars are updated after a sync (by us or external apps)
+        let watch_uids = self.config.enabled_calendar_uids.clone();
+        subscriptions.push(Subscription::run_with_id(
+            ("calendar-changes", config_hash),
+            cosmic::iced::stream::channel(4, move |mut channel| async move {
+                let (sender, mut receiver) = tokio::sync::mpsc::channel::<()>(4);
+
+                // Spawn the watcher in a separate task
+                let watch_task =
+                    tokio::spawn(crate::calendar::watch_calendar_changes(watch_uids, sender));
+
+                // Forward messages from the watcher to the iced channel
+                while receiver.recv().await.is_some() {
+                    let _ = channel.send(Message::CalendarChanged).await;
+                }
+
+                // Clean up if the watcher exits
+                watch_task.abort();
+            }),
+        ));
+
+        Subscription::batch(subscriptions)
     }
 
     /// Handles messages emitted by the application and its widgets.
@@ -1690,11 +1954,12 @@ impl cosmic::Application for AppModel {
                 self.available_calendars = calendars;
             }
             Message::ToggleCalendar(uid) => {
-                // If the list is empty (all enabled), populate it with all calendars first
+                // If the list is empty (all enabled), populate it with all meeting-source calendars
                 if self.config.enabled_calendar_uids.is_empty() {
                     self.config.enabled_calendar_uids = self
                         .available_calendars
                         .iter()
+                        .filter(|c| c.is_meeting_source())
                         .map(|c| c.uid.clone())
                         .collect();
                 }
@@ -1712,7 +1977,7 @@ impl cosmic::Application for AppModel {
                 }
 
                 // Refresh meetings with new filter
-                let enabled_uids = self.config.enabled_calendar_uids.clone();
+                let enabled_uids = self.enabled_meeting_source_uids();
                 let upcoming_count = self.config.upcoming_events_count as usize;
                 let additional_emails = self.config.additional_emails.clone();
                 return Task::perform(
@@ -1915,6 +2180,78 @@ impl cosmic::Application for AppModel {
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }
+            }
+            Message::RefreshCalendars => {
+                if !self.is_refreshing {
+                    self.is_refreshing = true;
+                    let enabled_uids = self.enabled_meeting_source_uids();
+                    let upcoming_count = self.config.upcoming_events_count as usize;
+                    let additional_emails = self.config.additional_emails.clone();
+                    return Task::perform(
+                        async move {
+                            // First refresh calendars from remote servers
+                            crate::calendar::refresh_calendars(&enabled_uids).await;
+                            // Wait a moment for EDS to process the refresh
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            // Then fetch updated meetings
+                            crate::calendar::get_upcoming_meetings(
+                                &enabled_uids,
+                                upcoming_count + 1,
+                                &additional_emails,
+                            )
+                            .await
+                        },
+                        |meetings| Message::MeetingsUpdated(meetings).into(),
+                    )
+                    .chain(Task::done(Message::RefreshCompleted.into()));
+                }
+            }
+            Message::RefreshCompleted => {
+                self.is_refreshing = false;
+            }
+            Message::SetAutoRefresh(enabled) => {
+                self.config.auto_refresh_enabled = enabled;
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetAutoRefreshInterval(idx) => {
+                self.config.auto_refresh_interval_minutes = match idx {
+                    0 => 5,
+                    1 => 10,
+                    2 => 15,
+                    3 => 30,
+                    _ => 10,
+                };
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::CalendarChanged => {
+                // A calendar was updated via D-Bus signal (sync completed)
+                // Refresh both calendars list (for updated sync timestamps) and meetings
+                let enabled_uids = self.enabled_meeting_source_uids();
+                let upcoming_count = self.config.upcoming_events_count as usize;
+                let additional_emails = self.config.additional_emails.clone();
+
+                let calendars_task = Task::perform(
+                    async { crate::calendar::get_available_calendars().await },
+                    |calendars| Message::CalendarsLoaded(calendars).into(),
+                );
+
+                let meetings_task = Task::perform(
+                    async move {
+                        crate::calendar::get_upcoming_meetings(
+                            &enabled_uids,
+                            upcoming_count + 1,
+                            &additional_emails,
+                        )
+                        .await
+                    },
+                    |meetings| Message::MeetingsUpdated(meetings).into(),
+                );
+
+                return Task::batch([calendars_task, meetings_task]);
             }
             Message::TogglePopup => {
                 return if let Some(p) = self.popup.take() {

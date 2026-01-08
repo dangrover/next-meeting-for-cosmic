@@ -33,7 +33,7 @@ jobs:
         uses: andy5995/gh-action-build-deb@v1
         with:
           platform: ${{ matrix.arch }}
-          codename: noble
+          codename: bookworm
           args: --no-sign
 
       - name: Upload .deb artifact
