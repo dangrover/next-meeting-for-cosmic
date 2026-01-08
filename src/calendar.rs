@@ -762,12 +762,22 @@ fn parse_display_name(data: &str) -> Option<String> {
     None
 }
 
-/// Parse Color from INI-format source data (e.g., Color=#62a0ea)
+/// Parse Color from INI-format source data (in [Calendar] section)
 fn parse_color(data: &str) -> Option<String> {
+    // Look for Color= specifically in the [Calendar] section, since other sections
+    // (like [WebDAV Backend]) may have an empty Color= field
+    let mut in_calendar_section = false;
     for line in data.lines() {
         let line = line.trim();
-        if line.starts_with("Color=") {
-            return Some(line.strip_prefix("Color=")?.to_string());
+        if line == "[Calendar]" {
+            in_calendar_section = true;
+        } else if line.starts_with('[') {
+            in_calendar_section = false;
+        } else if in_calendar_section && line.starts_with("Color=") {
+            let color = line.strip_prefix("Color=")?.to_string();
+            if !color.is_empty() {
+                return Some(color);
+            }
         }
     }
     None
