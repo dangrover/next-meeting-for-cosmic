@@ -95,3 +95,4 @@ updated-minutes-ago = Updated { $minutes }m ago
 updated-hours-ago = Updated { $hours }h ago
 updated-days-ago = Updated { $days }d ago
 vertical-panel-notice = This applet works best in a horizontal panel where meeting info can be displayed inline.
+calendars-setup-tip = Remember to set up any online calendars you want to pull from in GNOME calendar/Online Accounts. 

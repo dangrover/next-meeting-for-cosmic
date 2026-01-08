@@ -127,25 +127,10 @@ impl AppModel {
     /// Main popup page showing meeting info and settings nav
     fn view_main_page(&self) -> Element<'_, Message> {
         let space = spacing();
-        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
 
         let mut content = widget::column::with_capacity(8)
             .padding([space.space_xxs, space.space_none])
             .width(Length::Fill);
-
-        // Show notice if in vertical panel
-        if !self.core.applet.is_horizontal() {
-            content = content.push(
-                cosmic::applet::padded_control(
-                    widget::text::body(fl!("vertical-panel-notice")).class(secondary_text),
-                )
-                .padding([space.space_xxs, space.space_s]),
-            );
-            content = content.push(
-                cosmic::applet::padded_control(widget::divider::horizontal::default())
-                    .padding([space.space_xxs, space.space_s]),
-            );
-        }
 
         let filtered = self.filtered_meetings();
         if let Some(meeting) = filtered.first() {
@@ -248,6 +233,32 @@ impl AppModel {
                         .apply(widget::container)
                         .padding([0, space.space_s]),
                 );
+            }
+
+            // Show notice if in vertical panel (after next meeting, before upcoming)
+            if !self.core.applet.is_horizontal() {
+                content = content.push(
+                    cosmic::applet::padded_control(widget::divider::horizontal::default())
+                        .padding([space.space_xxs, space.space_s]),
+                );
+                content = content.push(cosmic::applet::padded_control(
+                    widget::row::with_capacity(2)
+                        .spacing(space.space_xs)
+                        .align_y(cosmic::iced::Alignment::Start)
+                        .push(
+                            widget::container(
+                                widget::icon::from_name("dialog-warning-symbolic")
+                                    .size(space.space_s),
+                            )
+                            .class(cosmic::theme::Container::custom(
+                                |theme| cosmic::iced_widget::container::Style {
+                                    icon_color: Some(theme.cosmic().palette.bright_orange.into()),
+                                    ..Default::default()
+                                },
+                            )),
+                        )
+                        .push(widget::text::body(fl!("vertical-panel-notice"))),
+                ));
             }
 
             // Upcoming events section
@@ -799,6 +810,40 @@ impl AppModel {
                 .push(widget::text::body(fl!("no-calendars-description")).class(secondary_text));
         } else {
             content = content.push(calendars_list);
+
+            // Show setup tip if no remote calendars and <=3 calendars total
+            // Use DEBUG_NO_REMOTE_CALENDARS=1 to force showing this tip
+            let has_remote = self.available_calendars.iter().any(|c| {
+                c.backend.as_ref().is_some_and(|b| {
+                    !matches!(
+                        b.to_lowercase().as_str(),
+                        "local" | "weather" | "contacts" | "birthdays"
+                    )
+                })
+            });
+            let force_no_remote = std::env::var("DEBUG_NO_REMOTE_CALENDARS").is_ok();
+            if force_no_remote || (!has_remote && self.available_calendars.len() <= 3) {
+                content = content.push(
+                    widget::row::with_capacity(2)
+                        .spacing(space.space_xs)
+                        .align_y(cosmic::iced::Alignment::Start)
+                        .push(
+                            widget::container(
+                                widget::icon::from_name("dialog-information-symbolic")
+                                    .size(space.space_s),
+                            )
+                            .class(cosmic::theme::Container::custom(
+                                |theme| cosmic::iced_widget::container::Style {
+                                    icon_color: Some(theme.cosmic().palette.neutral_6.into()),
+                                    ..Default::default()
+                                },
+                            )),
+                        )
+                        .push(
+                            widget::text::caption(fl!("calendars-setup-tip")).class(secondary_text),
+                        ),
+                );
+            }
         }
 
         content.into()
@@ -1575,7 +1620,8 @@ impl cosmic::Application for AppModel {
 
         // In vertical panels, just show an icon since text won't fit well
         if !self.core.applet.is_horizontal() {
-            let icon = widget::icon::from_name("office-calendar-symbolic").size(space.space_m);
+            let icon = widget::icon::from_name("com.dangrover.next-meeting-app-symbolic")
+                .size(space.space_m);
             let button = widget::button::custom(icon)
                 .class(cosmic::theme::Button::AppletIcon)
                 .on_press(Message::TogglePopup);

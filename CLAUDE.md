@@ -78,9 +78,5 @@ Settings pages use `widget::list_column()` for grouped items with dividers.
 
 ## Workflow
 
-- **Branching strategy**:
-  - `main` — stable releases only
-  - `dev` — development branch for new features
-  - Features and non-urgent changes go to `dev`; hotfixes can go directly to `main`
-  - Releases are created by merging `dev` into `main` and tagging
+- **Testing before pushing**: Do not push changes without letting the user test first. After making code changes, wait for the user to run `just dev` and verify the changes work correctly. Only push when explicitly asked, or when debugging CI issues.
 - **Atomic commits**: Suggest making commits between unrelated changes to keep history clean. Don't let unrelated work pile up in a single commit.
