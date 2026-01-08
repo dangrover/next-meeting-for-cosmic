@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, CosmicConfigEntry};
+use cosmic::cosmic_config::{self, CosmicConfigEntry, cosmic_config_derive::CosmicConfigEntry};
 use serde::{Deserialize, Serialize};
 
 /// How to display the meeting time in the panel
@@ -64,7 +64,6 @@ pub enum EventStatusFilter {
     /// Show events the user accepted or tentatively accepted
     AcceptedOrTentative,
 }
-
 
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
 #[version = 1]

@@ -6,7 +6,7 @@ use crate::fl;
 use crate::formatting::{format_panel_time, format_relative_time, format_time, parse_hex_color};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::cosmic_theme;
-use cosmic::iced::{window::Id, Length, Limits, Subscription};
+use cosmic::iced::{Length, Limits, Subscription, window::Id};
 use cosmic::iced_core::id;
 use cosmic::iced_winit::commands::popup::{destroy_popup, get_popup};
 use cosmic::prelude::*;
@@ -65,7 +65,9 @@ fn featured_button_style() -> cosmic::theme::Button {
             let cosmic = theme.cosmic();
             // Use text_button.hover to match AppletMenu hover color
             cosmic::widget::button::Style {
-                background: Some(cosmic::iced::Background::Color(cosmic.text_button.hover.into())),
+                background: Some(cosmic::iced::Background::Color(
+                    cosmic.text_button.hover.into(),
+                )),
                 text_color: Some(cosmic.on_bg_color().into()),
                 icon_color: Some(cosmic.on_bg_color().into()),
                 border_radius: cosmic.corner_radii.radius_s.into(),
@@ -76,7 +78,9 @@ fn featured_button_style() -> cosmic::theme::Button {
             let cosmic = theme.cosmic();
             // Use text_button.pressed to match AppletMenu pressed color
             cosmic::widget::button::Style {
-                background: Some(cosmic::iced::Background::Color(cosmic.text_button.pressed.into())),
+                background: Some(cosmic::iced::Background::Color(
+                    cosmic.text_button.pressed.into(),
+                )),
                 text_color: Some(cosmic.on_bg_color().into()),
                 icon_color: Some(cosmic.on_bg_color().into()),
                 border_radius: cosmic.corner_radii.radius_s.into(),
@@ -85,8 +89,6 @@ fn featured_button_style() -> cosmic::theme::Button {
         }),
     }
 }
-
-
 
 /// The application model stores app-specific state used to describe its interface and
 /// drive its logic.
@@ -141,10 +143,18 @@ impl AppModel {
                 match self.config.event_status_filter {
                     EventStatusFilter::All => true,
                     EventStatusFilter::Accepted => {
-                        matches!(m.attendance_status, AttendanceStatus::Accepted | AttendanceStatus::None)
+                        matches!(
+                            m.attendance_status,
+                            AttendanceStatus::Accepted | AttendanceStatus::None
+                        )
                     }
                     EventStatusFilter::AcceptedOrTentative => {
-                        matches!(m.attendance_status, AttendanceStatus::Accepted | AttendanceStatus::Tentative | AttendanceStatus::None)
+                        matches!(
+                            m.attendance_status,
+                            AttendanceStatus::Accepted
+                                | AttendanceStatus::Tentative
+                                | AttendanceStatus::None
+                        )
                     }
                 }
             })
@@ -207,7 +217,12 @@ impl AppModel {
                 let mut row = widget::row::with_capacity(2)
                     .spacing(space.space_xxs)
                     .align_y(cosmic::iced::Alignment::Center);
-                if let Some(dot) = calendar_color_dot::<Message>(&meeting.calendar_uid, &self.available_calendars, 10.0, Some(widget::tooltip::Position::Top)) {
+                if let Some(dot) = calendar_color_dot::<Message>(
+                    &meeting.calendar_uid,
+                    &self.available_calendars,
+                    10.0,
+                    Some(widget::tooltip::Position::Top),
+                ) {
                     row = row.push(dot);
                 }
                 row.push(widget::text::title4(&meeting.title))
@@ -223,7 +238,8 @@ impl AppModel {
                 .width(Length::Fill);
 
             if let Some(location) = physical_location {
-                meeting_column = meeting_column.push(widget::text::body(location).class(secondary_text));
+                meeting_column =
+                    meeting_column.push(widget::text::body(location).class(secondary_text));
             }
 
             let meeting_info = widget::button::custom(meeting_column)
@@ -239,20 +255,20 @@ impl AppModel {
                         .push(meeting_info)
                         .push(
                             widget::button::suggested(fl!("join"))
-                                .on_press(Message::OpenMeetingUrl(url))
+                                .on_press(Message::OpenMeetingUrl(url)),
                         )
                         .align_y(cosmic::iced::Alignment::Center)
                         .spacing(space.space_xs)
                         .width(Length::Fill)
                         .apply(widget::container)
-                        .padding([0, space.space_s])
+                        .padding([0, space.space_s]),
                 );
             } else {
                 // Wrap in container with horizontal padding
                 content = content.push(
                     meeting_info
                         .apply(widget::container)
-                        .padding([0, space.space_s])
+                        .padding([0, space.space_s]),
                 );
             }
 
@@ -262,13 +278,13 @@ impl AppModel {
                 // Divider before "Upcoming" section
                 content = content.push(
                     cosmic::applet::padded_control(widget::divider::horizontal::default())
-                        .padding([space.space_xxs, space.space_s])
+                        .padding([space.space_xxs, space.space_s]),
                 );
 
                 // "Upcoming" section heading
-                content = content.push(
-                    cosmic::applet::padded_control(widget::text::heading(fl!("upcoming")))
-                );
+                content = content.push(cosmic::applet::padded_control(widget::text::heading(fl!(
+                    "upcoming"
+                ))));
 
                 let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
                 for meeting in filtered.iter().skip(1).take(upcoming_count) {
@@ -287,7 +303,12 @@ impl AppModel {
                         .width(Length::Fill);
 
                     if self.config.popup_calendar_indicator {
-                        if let Some(dot) = calendar_color_dot::<Message>(&meeting.calendar_uid, &self.available_calendars, 8.0, None) {
+                        if let Some(dot) = calendar_color_dot::<Message>(
+                            &meeting.calendar_uid,
+                            &self.available_calendars,
+                            8.0,
+                            None,
+                        ) {
                             row = row.push(dot);
                         }
                     }
@@ -297,10 +318,8 @@ impl AppModel {
                         .push(widget::horizontal_space())
                         .push(widget::text::body(time_str).class(secondary_text));
 
-                    content = content.push(
-                        cosmic::applet::menu_button(row)
-                            .on_press(Message::OpenEvent(uid))
-                    );
+                    content = content
+                        .push(cosmic::applet::menu_button(row).on_press(Message::OpenEvent(uid)));
                 }
             }
         } else if self.available_calendars.is_empty() {
@@ -318,19 +337,19 @@ impl AppModel {
                 widget::container(no_cal_content)
                     .padding([space.space_s, space.space_s])
                     .width(Length::Fill)
-                    .align_x(cosmic::iced::alignment::Horizontal::Center)
+                    .align_x(cosmic::iced::alignment::Horizontal::Center),
             );
         } else {
             // Calendars exist but no upcoming meetings
-            content = content.push(
-                cosmic::applet::padded_control(widget::text::body(fl!("no-meetings")))
-            );
+            content = content.push(cosmic::applet::padded_control(widget::text::body(fl!(
+                "no-meetings"
+            ))));
         }
 
         // Divider before bottom actions
         content = content.push(
             cosmic::applet::padded_control(widget::divider::horizontal::default())
-                .padding([space.space_xxs, space.space_s])
+                .padding([space.space_xxs, space.space_s]),
         );
 
         // Bottom actions section (Open calendar + Settings)
@@ -342,22 +361,24 @@ impl AppModel {
                     .push(widget::horizontal_space())
                     .spacing(space.space_xs)
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
-            .on_press(Message::OpenCalendar)
+            .on_press(Message::OpenCalendar),
         );
 
         content = content.push(
             cosmic::applet::menu_button(
                 widget::row::with_capacity(3)
-                    .push(widget::icon::from_name("preferences-system-symbolic").size(space.space_m))
+                    .push(
+                        widget::icon::from_name("preferences-system-symbolic").size(space.space_m),
+                    )
                     .push(widget::text::body(fl!("settings")))
                     .push(widget::horizontal_space())
                     .spacing(space.space_xs)
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
-            .on_press(Message::Navigate(PopupPage::Settings))
+            .on_press(Message::Navigate(PopupPage::Settings)),
         );
 
         content.into()
@@ -381,10 +402,10 @@ impl AppModel {
                         .label(fl!("back"))
                         .spacing(space.space_xxxs)
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::Main))
+                        .on_press(Message::Navigate(PopupPage::Main)),
                 )
                 .push(widget::text::title4(fl!("settings")))
-                .spacing(space.space_xxs)
+                .spacing(space.space_xxs),
         );
 
         // Calendars count for summary
@@ -396,7 +417,9 @@ impl AppModel {
                 total
             } else {
                 // Count only UIDs that still exist in available calendars (filter stale UIDs)
-                self.config.enabled_calendar_uids.iter()
+                self.config
+                    .enabled_calendar_uids
+                    .iter()
                     .filter(|uid| self.available_calendars.iter().any(|c| &c.uid == *uid))
                     .count()
             };
@@ -411,7 +434,10 @@ impl AppModel {
         };
 
         // Join button status summary
-        let join_status = match (&self.config.panel_join_button, &self.config.popup_join_button) {
+        let join_status = match (
+            &self.config.panel_join_button,
+            &self.config.popup_join_button,
+        ) {
             (JoinButtonVisibility::Hide, JoinButtonVisibility::Hide) => fl!("status-off"),
             (JoinButtonVisibility::Hide, _) => fl!("status-popup"),
             (_, JoinButtonVisibility::Hide) => fl!("status-panel"),
@@ -427,7 +453,10 @@ impl AppModel {
         };
 
         // Calendar indicator status summary
-        let indicator_status = match (self.config.panel_calendar_indicator, self.config.popup_calendar_indicator) {
+        let indicator_status = match (
+            self.config.panel_calendar_indicator,
+            self.config.popup_calendar_indicator,
+        ) {
             (false, false) => fl!("status-off"),
             (false, true) => fl!("status-popup"),
             (true, false) => fl!("status-panel"),
@@ -453,7 +482,11 @@ impl AppModel {
                     EventStatusFilter::AcceptedOrTentative => fl!("filter-summary-tentative"),
                     _ => fl!("filter-summary-all"),
                 };
-                fl!("filter-summary-combo", allday = fl!("filter-summary-no-all-day"), status = status)
+                fl!(
+                    "filter-summary-combo",
+                    allday = fl!("filter-summary-no-all-day"),
+                    status = status
+                )
             }
         };
 
@@ -469,15 +502,17 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(calendar_summary))
-                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
+                                .push(
+                                    widget::icon::from_name("go-next-symbolic").size(space.space_m),
+                                )
                                 .spacing(space.space_xxs)
-                                .align_y(cosmic::iced::Alignment::Center)
+                                .align_y(cosmic::iced::Alignment::Center),
                         )
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::Calendars))
+                        .on_press(Message::Navigate(PopupPage::Calendars)),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             // Filter events
             .add(
@@ -488,15 +523,17 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(filter_summary))
-                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
+                                .push(
+                                    widget::icon::from_name("go-next-symbolic").size(space.space_m),
+                                )
                                 .spacing(space.space_xxs)
-                                .align_y(cosmic::iced::Alignment::Center)
+                                .align_y(cosmic::iced::Alignment::Center),
                         )
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::EventsToShowSettings))
+                        .on_press(Message::Navigate(PopupPage::EventsToShowSettings)),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
 
         content = content.push(calendars_section);
@@ -512,9 +549,13 @@ impl AppModel {
                 widget::row::with_capacity(3)
                     .push(widget::text::body(fl!("display-format-section")))
                     .push(widget::horizontal_space())
-                    .push(widget::dropdown(display_format_options(), format_idx, Message::SelectDisplayFormat))
+                    .push(widget::dropdown(
+                        display_format_options(),
+                        format_idx,
+                        Message::SelectDisplayFormat,
+                    ))
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             // Upcoming events count
             .add(
@@ -530,7 +571,7 @@ impl AppModel {
                         Message::SetUpcomingEventsCount,
                     ))
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
 
         content = content.push(display_settings);
@@ -550,15 +591,17 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(join_status))
-                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
+                                .push(
+                                    widget::icon::from_name("go-next-symbolic").size(space.space_m),
+                                )
                                 .spacing(space.space_xxs)
-                                .align_y(cosmic::iced::Alignment::Center)
+                                .align_y(cosmic::iced::Alignment::Center),
                         )
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::JoinButtonSettings))
+                        .on_press(Message::Navigate(PopupPage::JoinButtonSettings)),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             // Physical location settings
             .add(
@@ -569,15 +612,17 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(location_status))
-                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
+                                .push(
+                                    widget::icon::from_name("go-next-symbolic").size(space.space_m),
+                                )
                                 .spacing(space.space_xxs)
-                                .align_y(cosmic::iced::Alignment::Center)
+                                .align_y(cosmic::iced::Alignment::Center),
                         )
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::LocationSettings))
+                        .on_press(Message::Navigate(PopupPage::LocationSettings)),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             // Calendar indicator settings
             .add(
@@ -588,15 +633,17 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(indicator_status))
-                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
+                                .push(
+                                    widget::icon::from_name("go-next-symbolic").size(space.space_m),
+                                )
                                 .spacing(space.space_xxs)
-                                .align_y(cosmic::iced::Alignment::Center)
+                                .align_y(cosmic::iced::Alignment::Center),
                         )
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::CalendarIndicatorSettings))
+                        .on_press(Message::Navigate(PopupPage::CalendarIndicatorSettings)),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
 
         content = content.push(details_settings);
@@ -614,11 +661,11 @@ impl AppModel {
                         .push(widget::horizontal_space())
                         .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
                         .align_y(cosmic::iced::Alignment::Center)
-                        .width(Length::Fill)
+                        .width(Length::Fill),
                 )
                 .class(cosmic::theme::Button::MenuRoot)
                 .width(Length::Fill)
-                .on_press(Message::Navigate(PopupPage::About))
+                .on_press(Message::Navigate(PopupPage::About)),
             );
 
         content = content.push(about_section);
@@ -644,15 +691,15 @@ impl AppModel {
                         .label(fl!("settings"))
                         .spacing(space.space_xxxs)
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::Settings))
+                        .on_press(Message::Navigate(PopupPage::Settings)),
                 )
                 .push(widget::text::title4(fl!("calendars-section")))
-                .spacing(space.space_xxs)
+                .spacing(space.space_xxs),
         );
 
         // Calendar toggles in a single list_column
-        let mut calendars_list = widget::list_column()
-            .list_item_padding([space.space_xxs, space.space_xs]);
+        let mut calendars_list =
+            widget::list_column().list_item_padding([space.space_xxs, space.space_xs]);
 
         for calendar in &self.available_calendars {
             let is_enabled = self.config.enabled_calendar_uids.is_empty()
@@ -681,7 +728,7 @@ impl AppModel {
                                     },
                                     ..Default::default()
                                 }
-                            }))
+                            })),
                     );
                 }
             }
@@ -689,8 +736,10 @@ impl AppModel {
             row = row
                 .push(widget::text::body(&calendar.display_name))
                 .push(widget::horizontal_space())
-                .push(widget::toggler(is_enabled)
-                    .on_toggle(move |_| Message::ToggleCalendar(uid.clone())));
+                .push(
+                    widget::toggler(is_enabled)
+                        .on_toggle(move |_| Message::ToggleCalendar(uid.clone())),
+                );
 
             calendars_list = calendars_list.add(row);
         }
@@ -698,10 +747,8 @@ impl AppModel {
         if self.available_calendars.is_empty() {
             // No calendars - show explanation
             let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
-            content = content.push(
-                widget::text::body(fl!("no-calendars-description"))
-                    .class(secondary_text)
-            );
+            content = content
+                .push(widget::text::body(fl!("no-calendars-description")).class(secondary_text));
         } else {
             content = content.push(calendars_list);
         }
@@ -727,10 +774,10 @@ impl AppModel {
                         .label(fl!("settings"))
                         .spacing(space.space_xxxs)
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::Settings))
+                        .on_press(Message::Navigate(PopupPage::Settings)),
                 )
                 .push(widget::text::title4(fl!("join-button-section")))
-                .spacing(space.space_xxs)
+                .spacing(space.space_xxs),
         );
 
         // Dropdown options for join button visibility (6 options)
@@ -777,7 +824,7 @@ impl AppModel {
                         Message::SetPanelJoinButton,
                     ))
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             // Popup join button
             .add(
@@ -790,7 +837,7 @@ impl AppModel {
                         Message::SetPopupJoinButton,
                     ))
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
 
         content = content.push(visibility_settings);
@@ -802,8 +849,8 @@ impl AppModel {
         content = content.push(widget::text::heading(fl!("url-patterns")));
 
         // Pattern list as a grouped list
-        let mut patterns_list = widget::list_column()
-            .list_item_padding([space.space_xxs, space.space_xs]);
+        let mut patterns_list =
+            widget::list_column().list_item_padding([space.space_xxs, space.space_xs]);
 
         for (idx, pattern) in self.config.meeting_url_patterns.iter().enumerate() {
             patterns_list = patterns_list.add(
@@ -811,31 +858,30 @@ impl AppModel {
                     .push(
                         widget::text_input("https://example.com/meeting/.*", pattern)
                             .on_input(move |s| Message::UpdatePattern(idx, s))
-                            .width(Length::Fill)
+                            .width(Length::Fill),
                     )
                     .push(
                         widget::button::icon(widget::icon::from_name("edit-delete-symbolic"))
                             .extra_small()
-                            .on_press(Message::RemovePattern(idx))
+                            .on_press(Message::RemovePattern(idx)),
                     )
                     .spacing(space.space_xs)
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
         }
 
         content = content.push(patterns_list);
 
         // Add pattern button
-        content = content.push(
-            widget::button::standard(fl!("add-pattern"))
-                .on_press(Message::AddPattern)
-        );
+        content = content
+            .push(widget::button::standard(fl!("add-pattern")).on_press(Message::AddPattern));
 
         // Description at bottom with secondary color
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_s));
-        content = content.push(widget::text::caption(fl!("join-button-description")).class(secondary_text));
+        content = content
+            .push(widget::text::caption(fl!("join-button-description")).class(secondary_text));
         content = content.push(widget::vertical_space().height(space.space_m));
 
         content.into()
@@ -859,10 +905,10 @@ impl AppModel {
                         .label(fl!("settings"))
                         .spacing(space.space_xxxs)
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::Settings))
+                        .on_press(Message::Navigate(PopupPage::Settings)),
                 )
                 .push(widget::text::title4(fl!("location-section")))
-                .spacing(space.space_xxs)
+                .spacing(space.space_xxs),
         );
 
         // Dropdown options for location visibility (6 options)
@@ -909,7 +955,7 @@ impl AppModel {
                         Message::SetPanelLocation,
                     ))
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             // Popup location
             .add(
@@ -922,7 +968,7 @@ impl AppModel {
                         Message::SetPopupLocation,
                     ))
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
 
         content = content.push(visibility_settings);
@@ -930,7 +976,8 @@ impl AppModel {
         // Description at bottom with secondary color
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_s));
-        content = content.push(widget::text::caption(fl!("location-description")).class(secondary_text));
+        content =
+            content.push(widget::text::caption(fl!("location-description")).class(secondary_text));
         content = content.push(widget::vertical_space().height(space.space_m));
 
         content.into()
@@ -954,10 +1001,10 @@ impl AppModel {
                         .label(fl!("settings"))
                         .spacing(space.space_xxxs)
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::Settings))
+                        .on_press(Message::Navigate(PopupPage::Settings)),
                 )
                 .push(widget::text::title4(fl!("calendar-indicator-section")))
-                .spacing(space.space_xxs)
+                .spacing(space.space_xxs),
         );
 
         // Calendar indicator settings group
@@ -970,10 +1017,10 @@ impl AppModel {
                     .push(widget::horizontal_space())
                     .push(
                         widget::toggler(self.config.panel_calendar_indicator)
-                            .on_toggle(Message::SetPanelCalendarIndicator)
+                            .on_toggle(Message::SetPanelCalendarIndicator),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             // Popup indicator toggle
             .add(
@@ -982,10 +1029,10 @@ impl AppModel {
                     .push(widget::horizontal_space())
                     .push(
                         widget::toggler(self.config.popup_calendar_indicator)
-                            .on_toggle(Message::SetPopupCalendarIndicator)
+                            .on_toggle(Message::SetPopupCalendarIndicator),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
 
         content = content.push(indicator_settings);
@@ -993,7 +1040,9 @@ impl AppModel {
         // Description at bottom with secondary color
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_s));
-        content = content.push(widget::text::caption(fl!("calendar-indicator-description")).class(secondary_text));
+        content = content.push(
+            widget::text::caption(fl!("calendar-indicator-description")).class(secondary_text),
+        );
         content = content.push(widget::vertical_space().height(space.space_m));
 
         content.into()
@@ -1019,10 +1068,10 @@ impl AppModel {
                         .label(fl!("settings"))
                         .spacing(space.space_xxxs)
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::Settings))
+                        .on_press(Message::Navigate(PopupPage::Settings)),
                 )
                 .push(widget::text::title4(fl!("filter-events-section")))
-                .spacing(space.space_xxs)
+                .spacing(space.space_xxs),
         );
 
         // Status filter dropdown options
@@ -1051,19 +1100,23 @@ impl AppModel {
                     .push(widget::horizontal_space())
                     .push(
                         widget::toggler(self.config.show_all_day_events)
-                            .on_toggle(Message::SetShowAllDayEvents)
+                            .on_toggle(Message::SetShowAllDayEvents),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             // Status filter dropdown
             .add(
                 widget::row::with_capacity(3)
                     .push(widget::text::body(fl!("status-filter-section")))
                     .push(widget::horizontal_space())
-                    .push(widget::dropdown(status_options, status_idx, Message::SetEventStatusFilter))
+                    .push(widget::dropdown(
+                        status_options,
+                        status_idx,
+                        Message::SetEventStatusFilter,
+                    ))
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
 
         // Show email settings link only when filtering by status
@@ -1076,15 +1129,17 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(email_summary))
-                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
+                                .push(
+                                    widget::icon::from_name("go-next-symbolic").size(space.space_m),
+                                )
                                 .spacing(space.space_xxs)
-                                .align_y(cosmic::iced::Alignment::Center)
+                                .align_y(cosmic::iced::Alignment::Center),
                         )
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::EmailSettings))
+                        .on_press(Message::Navigate(PopupPage::EmailSettings)),
                     )
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
         }
 
@@ -1093,7 +1148,8 @@ impl AppModel {
         // Description at bottom with secondary color
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_s));
-        content = content.push(widget::text::caption(fl!("filter-events-description")).class(secondary_text));
+        content = content
+            .push(widget::text::caption(fl!("filter-events-description")).class(secondary_text));
         content = content.push(widget::vertical_space().height(space.space_m));
 
         content.into()
@@ -1117,15 +1173,15 @@ impl AppModel {
                         .label(fl!("filter-events-section"))
                         .spacing(space.space_xxxs)
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::EventsToShowSettings))
+                        .on_press(Message::Navigate(PopupPage::EventsToShowSettings)),
                 )
                 .push(widget::text::title4(fl!("additional-emails-section")))
-                .spacing(space.space_xxs)
+                .spacing(space.space_xxs),
         );
 
         // Email list as a grouped list
-        let mut emails_list = widget::list_column()
-            .list_item_padding([space.space_xxs, space.space_xs]);
+        let mut emails_list =
+            widget::list_column().list_item_padding([space.space_xxs, space.space_xs]);
 
         for (idx, email) in self.config.additional_emails.iter().enumerate() {
             emails_list = emails_list.add(
@@ -1134,31 +1190,31 @@ impl AppModel {
                         widget::text_input("email@example.com", email)
                             .on_input(move |s| Message::UpdateEmail(idx, s))
                             .width(Length::Fill)
-                            .id(email_input_id(idx))
+                            .id(email_input_id(idx)),
                     )
                     .push(
                         widget::button::icon(widget::icon::from_name("edit-delete-symbolic"))
                             .extra_small()
-                            .on_press(Message::RemoveEmail(idx))
+                            .on_press(Message::RemoveEmail(idx)),
                     )
                     .spacing(space.space_xs)
                     .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             );
         }
 
         content = content.push(emails_list);
 
         // Add email button
-        content = content.push(
-            widget::button::standard(fl!("add-email"))
-                .on_press(Message::AddEmail)
-        );
+        content =
+            content.push(widget::button::standard(fl!("add-email")).on_press(Message::AddEmail));
 
         // Description at bottom with secondary color
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_s));
-        content = content.push(widget::text::caption(fl!("additional-emails-description")).class(secondary_text));
+        content = content.push(
+            widget::text::caption(fl!("additional-emails-description")).class(secondary_text),
+        );
         content = content.push(widget::vertical_space().height(space.space_m));
 
         content.into()
@@ -1185,43 +1241,35 @@ impl AppModel {
                         .label(fl!("settings"))
                         .spacing(space.space_xxxs)
                         .class(cosmic::theme::Button::Link)
-                        .on_press(Message::Navigate(PopupPage::Settings))
+                        .on_press(Message::Navigate(PopupPage::Settings)),
                 )
-                .width(Length::Fill)
+                .width(Length::Fill),
         );
 
         // Vertical space before icon
         content = content.push(widget::vertical_space().height(space.space_m));
 
         // App icon (centered, large)
-        content = content.push(
-            widget::icon::from_name("com.dangrover.next-meeting-app")
-                .size(64)
-        );
+        content = content.push(widget::icon::from_name("com.dangrover.next-meeting-app").size(64));
 
         // App name
         content = content.push(widget::text::title3(fl!("app-title")));
 
         // Version
         let version = env!("CARGO_PKG_VERSION");
-        content = content.push(
-            widget::text::body(fl!("version", version = version))
-                .class(secondary_text)
-        );
+        content = content
+            .push(widget::text::body(fl!("version", version = version)).class(secondary_text));
 
         // Author
         let author = env!("CARGO_PKG_AUTHORS");
-        content = content.push(
-            widget::text::body(fl!("author", author = author))
-                .class(secondary_text)
-        );
+        content =
+            content.push(widget::text::body(fl!("author", author = author)).class(secondary_text));
 
         // Vertical space at bottom
         content = content.push(widget::vertical_space().height(space.space_l));
 
         content.into()
     }
-
 }
 
 /// Create a calendar color indicator dot widget with optional tooltip showing calendar name
@@ -1371,7 +1419,14 @@ impl cosmic::Application for AppModel {
         );
 
         let meetings_task = Task::perform(
-            async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1, &additional_emails).await },
+            async move {
+                crate::calendar::get_upcoming_meetings(
+                    &enabled_uids,
+                    upcoming_count + 1,
+                    &additional_emails,
+                )
+                .await
+            },
             |meetings| Message::MeetingsUpdated(meetings).into(),
         );
 
@@ -1436,7 +1491,14 @@ impl cosmic::Application for AppModel {
 
             // Build the parenthetical string: "(time in Location)" or just "(time)"
             let info_str = match physical_location {
-                Some(loc) => format!("  {}", fl!("panel-time-location", time = time_str.clone(), location = loc)),
+                Some(loc) => format!(
+                    "  {}",
+                    fl!(
+                        "panel-time-location",
+                        time = time_str.clone(),
+                        location = loc
+                    )
+                ),
                 None => format!("  {}", fl!("panel-time", time = time_str)),
             };
 
@@ -1447,23 +1509,22 @@ impl cosmic::Application for AppModel {
 
             // Add calendar indicator dot if enabled
             if self.config.panel_calendar_indicator {
-                if let Some(dot) = calendar_color_dot::<Message>(&meeting.calendar_uid, &self.available_calendars, 8.0, Some(widget::tooltip::Position::Bottom)) {
+                if let Some(dot) = calendar_color_dot::<Message>(
+                    &meeting.calendar_uid,
+                    &self.available_calendars,
+                    8.0,
+                    Some(widget::tooltip::Position::Bottom),
+                ) {
                     content = content.push(dot);
                 }
             }
 
             content = content
-                .push(
-                    self.core.applet.text(title)
-                        .font(cosmic::iced::font::Font {
-                            weight: cosmic::iced::font::Weight::Bold,
-                            ..cosmic::iced::font::Font::DEFAULT
-                        })
-                )
-                .push(
-                    self.core.applet.text(info_str)
-                        .class(secondary_text)
-                );
+                .push(self.core.applet.text(title).font(cosmic::iced::font::Font {
+                    weight: cosmic::iced::font::Weight::Bold,
+                    ..cosmic::iced::font::Font::DEFAULT
+                }))
+                .push(self.core.applet.text(info_str).class(secondary_text));
             let join_url = match self.config.panel_join_button {
                 JoinButtonVisibility::Hide => None,
                 JoinButtonVisibility::Show => {
@@ -1494,17 +1555,16 @@ impl cosmic::Application for AppModel {
                 .push(self.core.applet.text(fl!("no-calendars")));
             (content, None)
         } else {
-            let content = widget::row::with_capacity(1)
-                .push(self.core.applet.text(fl!("no-meetings-panel")));
+            let content =
+                widget::row::with_capacity(1).push(self.core.applet.text(fl!("no-meetings-panel")));
             (content, None)
         };
 
         // Main panel button with meeting text
-        let main_button = widget::button::custom(
-            panel_content.padding([space.space_xxxs, space.space_xs])
-        )
-        .class(cosmic::theme::Button::AppletIcon)
-        .on_press(Message::TogglePopup);
+        let main_button =
+            widget::button::custom(panel_content.padding([space.space_xxxs, space.space_xs]))
+                .class(cosmic::theme::Button::AppletIcon)
+                .on_press(Message::TogglePopup);
 
         let mut row = widget::row::with_capacity(2)
             .push(main_button)
@@ -1514,16 +1574,15 @@ impl cosmic::Application for AppModel {
         // Add join button next to panel button if we should show it
         if let Some(url) = show_panel_join {
             row = row.push(
-                widget::button::custom(
-                    self.core.applet.text(fl!("join"))
-                        .font(cosmic::iced::font::Font {
-                            weight: cosmic::iced::font::Weight::Bold,
-                            ..cosmic::iced::font::Font::DEFAULT
-                        })
-                )
+                widget::button::custom(self.core.applet.text(fl!("join")).font(
+                    cosmic::iced::font::Font {
+                        weight: cosmic::iced::font::Weight::Bold,
+                        ..cosmic::iced::font::Font::DEFAULT
+                    },
+                ))
                 .padding([space.space_xxxs, space.space_xxs])
                 .class(cosmic::theme::Button::Suggested)
-                .on_press(Message::OpenMeetingUrl(url))
+                .on_press(Message::OpenMeetingUrl(url)),
             );
         }
 
@@ -1553,7 +1612,11 @@ impl cosmic::Application for AppModel {
             .min_height(200.0)
             .max_height(800.0);
 
-        self.core.applet.popup_container(content).limits(limits).into()
+        self.core
+            .applet
+            .popup_container(content)
+            .limits(limits)
+            .into()
     }
 
     /// Register subscriptions for this application.
@@ -1587,7 +1650,12 @@ impl cosmic::Application for AppModel {
                         // Refresh both calendars and meetings
                         let calendars = crate::calendar::get_available_calendars().await;
                         let _ = channel.send(Message::CalendarsLoaded(calendars)).await;
-                        let meetings = crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1, &additional_emails).await;
+                        let meetings = crate::calendar::get_upcoming_meetings(
+                            &enabled_uids,
+                            upcoming_count + 1,
+                            &additional_emails,
+                        )
+                        .await;
                         let _ = channel.send(Message::MeetingsUpdated(meetings)).await;
                     }
                 }),
@@ -1642,7 +1710,14 @@ impl cosmic::Application for AppModel {
                 let upcoming_count = self.config.upcoming_events_count as usize;
                 let additional_emails = self.config.additional_emails.clone();
                 return Task::perform(
-                    async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1, &additional_emails).await },
+                    async move {
+                        crate::calendar::get_upcoming_meetings(
+                            &enabled_uids,
+                            upcoming_count + 1,
+                            &additional_emails,
+                        )
+                        .await
+                    },
                     |meetings| Message::MeetingsUpdated(meetings).into(),
                 );
             }
@@ -1666,7 +1741,14 @@ impl cosmic::Application for AppModel {
                 let upcoming_count = self.config.upcoming_events_count as usize;
                 let additional_emails = self.config.additional_emails.clone();
                 return Task::perform(
-                    async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1, &additional_emails).await },
+                    async move {
+                        crate::calendar::get_upcoming_meetings(
+                            &enabled_uids,
+                            upcoming_count + 1,
+                            &additional_emails,
+                        )
+                        .await
+                    },
                     |meetings| Message::MeetingsUpdated(meetings).into(),
                 );
             }
@@ -1693,9 +1775,7 @@ impl cosmic::Application for AppModel {
             }
             Message::OpenMeetingUrl(url) => {
                 // Open the meeting URL in the default browser
-                let _ = std::process::Command::new("xdg-open")
-                    .arg(&url)
-                    .spawn();
+                let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
             }
             Message::SetPopupJoinButton(idx) => {
                 self.config.popup_join_button = match idx {
@@ -1845,7 +1925,7 @@ impl cosmic::Application for AppModel {
                     );
                     popup_settings.positioner.size_limits = Limits::NONE;
                     get_popup(popup_settings)
-                }
+                };
             }
             Message::PopupClosed(id) => {
                 if self.popup.as_ref() == Some(&id) {

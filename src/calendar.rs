@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use ical::parser::ical::IcalParser;
 use regex::Regex;
 use zbus::{Connection, zvariant};
-use ical::parser::ical::IcalParser;
 
 /// User's attendance status for a meeting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -62,7 +62,11 @@ pub async fn get_available_calendars() -> Vec<CalendarInfo> {
 /// Otherwise, only calendars with UIDs in the list are queried.
 /// Returns up to `limit` meetings (use limit=0 for just the next meeting info).
 /// `additional_emails` are extra email addresses to identify the user in ATTENDEE fields.
-pub async fn get_upcoming_meetings(enabled_uids: &[String], limit: usize, additional_emails: &[String]) -> Vec<Meeting> {
+pub async fn get_upcoming_meetings(
+    enabled_uids: &[String],
+    limit: usize,
+    additional_emails: &[String],
+) -> Vec<Meeting> {
     // Debug: simulate no calendars for testing
     if std::env::var("DEBUG_NO_CALENDARS").is_ok() {
         return Vec::new();
@@ -76,7 +80,12 @@ pub async fn get_upcoming_meetings(enabled_uids: &[String], limit: usize, additi
     get_meetings_from_dbus(&conn, enabled_uids, limit.max(1), additional_emails).await
 }
 
-async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limit: usize, additional_emails: &[String]) -> Vec<Meeting> {
+async fn get_meetings_from_dbus(
+    conn: &Connection,
+    enabled_uids: &[String],
+    limit: usize,
+    additional_emails: &[String],
+) -> Vec<Meeting> {
     // Evolution Data Server workflow:
     // 1. Get calendar source UIDs from D-Bus SourceManager
     // 2. For each source, use CalendarFactory.OpenCalendar to get a calendar object
@@ -158,23 +167,24 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
 
         // GetObjectList takes a query string - empty string gets all events
         // We could use ECalQuery format for filtering, but empty works for now
-        let ics_objects: Vec<String> = match calendar_proxy
-            .call_method("GetObjectList", &("",))
-            .await
-        {
-            Ok(reply) => match reply.body::<Vec<String>>() {
-                Ok(objects) => objects,
+        let ics_objects: Vec<String> =
+            match calendar_proxy.call_method("GetObjectList", &("",)).await {
+                Ok(reply) => match reply.body::<Vec<String>>() {
+                    Ok(objects) => objects,
+                    Err(_) => continue,
+                },
                 Err(_) => continue,
-            },
-            Err(_) => continue,
-        };
+            };
 
         // Step 4: Parse iCalendar objects and extract meetings
         for ics_object in ics_objects {
             // EDS returns raw VEVENT objects without VCALENDAR wrapper
             // The ical crate needs the wrapper, so add it if missing
             let wrapped = if ics_object.trim().starts_with("BEGIN:VEVENT") {
-                format!("BEGIN:VCALENDAR\nVERSION:2.0\n{}\nEND:VCALENDAR", ics_object)
+                format!(
+                    "BEGIN:VCALENDAR\nVERSION:2.0\n{}\nEND:VCALENDAR",
+                    ics_object
+                )
             } else {
                 ics_object.clone()
             };
@@ -210,7 +220,8 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
                         .and_then(|v| parse_ical_datetime(v, &now));
 
                     // Parse attendance status from ATTENDEE properties
-                    let attendance_status = parse_attendance_status(&event.properties, &user_emails);
+                    let attendance_status =
+                        parse_attendance_status(&event.properties, &user_emails);
 
                     if let Some(start) = start_dt {
                         // Use end time if available, otherwise assume 1 hour duration
@@ -381,7 +392,11 @@ async fn get_calendars_from_dbus(conn: &Connection) -> Option<Vec<CalendarInfo>>
                 if data.contains("[Calendar]") {
                     let display_name = parse_display_name(&data).unwrap_or_else(|| uid.clone());
                     let color = parse_color(&data);
-                    calendars.push(CalendarInfo { uid, display_name, color });
+                    calendars.push(CalendarInfo {
+                        uid,
+                        display_name,
+                        color,
+                    });
                 }
             }
         }
@@ -417,7 +432,10 @@ fn parse_color(data: &str) -> Option<String> {
 
 /// Parse attendance status from ATTENDEE properties
 /// Matches the user's email addresses against ATTENDEE entries and extracts PARTSTAT
-fn parse_attendance_status(properties: &[ical::property::Property], user_emails: &[String]) -> AttendanceStatus {
+fn parse_attendance_status(
+    properties: &[ical::property::Property],
+    user_emails: &[String],
+) -> AttendanceStatus {
     // If no user emails provided, we can't determine attendance
     if user_emails.is_empty() {
         return AttendanceStatus::None;
@@ -509,7 +527,7 @@ fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<Dat
 
     // Handle UTC times (ending with Z)
     if value.ends_with('Z') {
-        let value = &value[..value.len()-1];
+        let value = &value[..value.len() - 1];
         if value.len() >= 15 {
             if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S") {
                 return Some(chrono::Utc.from_utc_datetime(&naive).with_timezone(&Local));
@@ -526,10 +544,9 @@ fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<Dat
 
     // Try parsing as date only (YYYYMMDD)
     if value.len() == 8 && value.chars().all(|c| c.is_ascii_digit()) {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(
-            &format!("{}T000000", value),
-            "%Y%m%dT%H%M%S"
-        ) {
+        if let Ok(naive) =
+            NaiveDateTime::parse_from_str(&format!("{}T000000", value), "%Y%m%dT%H%M%S")
+        {
             return Local.from_local_datetime(&naive).single();
         }
     }
@@ -541,10 +558,7 @@ fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<Dat
 /// Checks location first (most common place for meeting links), then description
 pub fn extract_meeting_url(meeting: &Meeting, patterns: &[String]) -> Option<String> {
     // Compile patterns, skipping any invalid ones
-    let compiled: Vec<Regex> = patterns
-        .iter()
-        .filter_map(|p| Regex::new(p).ok())
-        .collect();
+    let compiled: Vec<Regex> = patterns.iter().filter_map(|p| Regex::new(p).ok()).collect();
 
     if compiled.is_empty() {
         return None;

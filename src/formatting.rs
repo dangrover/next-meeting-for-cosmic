@@ -13,7 +13,11 @@ pub fn use_military_time() -> bool {
 
 /// Format a time according to user's COSMIC time preference
 pub fn format_time(dt: &chrono::DateTime<chrono::Local>, include_day: bool) -> String {
-    let time_fmt = if use_military_time() { "%H:%M" } else { "%I:%M %p" };
+    let time_fmt = if use_military_time() {
+        "%H:%M"
+    } else {
+        "%I:%M %p"
+    };
     if include_day {
         dt.format(&format!("%A, %B %d at {}", time_fmt)).to_string()
     } else {
@@ -22,8 +26,15 @@ pub fn format_time(dt: &chrono::DateTime<chrono::Local>, include_day: bool) -> S
 }
 
 /// Smart panel time formatting: just time if today, day+time if different day
-pub fn format_panel_time(dt: &chrono::DateTime<chrono::Local>, now: &chrono::DateTime<chrono::Local>) -> String {
-    let time_fmt = if use_military_time() { "%H:%M" } else { "%l:%M%P" }; // %l = hour 1-12 no padding, %P = lowercase am/pm
+pub fn format_panel_time(
+    dt: &chrono::DateTime<chrono::Local>,
+    now: &chrono::DateTime<chrono::Local>,
+) -> String {
+    let time_fmt = if use_military_time() {
+        "%H:%M"
+    } else {
+        "%l:%M%P"
+    }; // %l = hour 1-12 no padding, %P = lowercase am/pm
     let is_same_day = dt.date_naive() == now.date_naive();
 
     if is_same_day {
@@ -31,7 +42,10 @@ pub fn format_panel_time(dt: &chrono::DateTime<chrono::Local>, now: &chrono::Dat
         dt.format(time_fmt).to_string().trim().to_string()
     } else {
         // Show day and time: "Fri 2:30pm" or "Fri 14:30"
-        dt.format(&format!("%a {}", time_fmt)).to_string().trim().to_string()
+        dt.format(&format!("%a {}", time_fmt))
+            .to_string()
+            .trim()
+            .to_string()
     }
 }
 
