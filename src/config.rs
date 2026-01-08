@@ -53,6 +53,18 @@ pub enum LocationVisibility {
     ShowIf5m,
 }
 
+/// Which events to show based on attendance status
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+pub enum EventStatusFilter {
+    /// Show all events regardless of attendance status
+    #[default]
+    All,
+    /// Show only events the user accepted
+    Accepted,
+    /// Show events the user accepted or tentatively accepted
+    AcceptedOrTentative,
+}
+
 
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
 #[version = 1]
@@ -78,6 +90,10 @@ pub struct Config {
     pub popup_calendar_indicator: bool,
     /// Regex patterns to detect meeting URLs in location/description.
     pub meeting_url_patterns: Vec<String>,
+    /// Whether to show all-day events.
+    pub show_all_day_events: bool,
+    /// Filter events by attendance status.
+    pub event_status_filter: EventStatusFilter,
 }
 
 impl Default for Config {
@@ -104,6 +120,8 @@ impl Default for Config {
                 r"https://[a-z0-9]+\.webex\.com/[^\s]+/j\.php\?MTID=[^\s]+".to_string(),
                 r"https://[a-z0-9]+\.webex\.com/meet/[^\s]+".to_string(),
             ],
+            show_all_day_events: true,
+            event_status_filter: EventStatusFilter::default(),
         }
     }
 }

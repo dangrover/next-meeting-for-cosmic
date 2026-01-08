@@ -1,4 +1,4 @@
-name := 'meeting'
+name := 'cosmic-next-meeting'
 appid := 'com.dangrover.next-meeting-app'
 
 rootdir := ''

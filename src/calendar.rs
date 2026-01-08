@@ -4,15 +4,34 @@ use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use zbus::{Connection, zvariant};
 use ical::parser::ical::IcalParser;
 
+/// User's attendance status for a meeting
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AttendanceStatus {
+    /// User has accepted the meeting
+    Accepted,
+    /// User has tentatively accepted
+    Tentative,
+    /// User has declined
+    Declined,
+    /// User hasn't responded yet
+    NeedsAction,
+    /// No attendance info (user is organizer or it's a personal event)
+    #[default]
+    None,
+}
+
 #[derive(Debug, Clone)]
 pub struct Meeting {
     pub uid: String,
     pub title: String,
     pub start: DateTime<Local>,
+    #[allow(dead_code)]
     pub end: DateTime<Local>,
     pub location: Option<String>,
     pub description: Option<String>,
     pub calendar_uid: String,
+    pub is_all_day: bool,
+    pub attendance_status: AttendanceStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -130,21 +149,37 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
 
             if let Some(Ok(calendar)) = IcalParser::new(wrapped.as_bytes()).next() {
                 for event in calendar.events {
+                    // Check if this is an all-day event (DTSTART has VALUE=DATE)
+                    let dtstart_prop = event.properties.iter().find(|p| p.name == "DTSTART");
+                    let is_all_day = dtstart_prop.map_or(false, |p| {
+                        // Check if VALUE=DATE is in the parameters or if the value is just a date (8 digits)
+                        let has_date_param = p.params.as_ref().map_or(false, |params| {
+                            params.iter().any(|(name, values)| {
+                                name == "VALUE" && values.iter().any(|v| v == "DATE")
+                            })
+                        });
+                        let value_is_date = p.value.as_ref().map_or(false, |v| {
+                            let v = v.trim();
+                            v.len() == 8 && v.chars().all(|c| c.is_ascii_digit())
+                        });
+                        has_date_param || value_is_date
+                    });
+
                     // Get start and end times
-                    let start_dt = event
-                        .properties
-                        .iter()
-                        .find(|p| p.name == "DTSTART")
+                    let start_dt = dtstart_prop
                         .and_then(|p| p.value.as_ref())
                         .and_then(|v| parse_ical_datetime(v, &now));
-                    
+
                     let end_dt = event
                         .properties
                         .iter()
                         .find(|p| p.name == "DTEND" || p.name == "DURATION")
                         .and_then(|p| p.value.as_ref())
                         .and_then(|v| parse_ical_datetime(v, &now));
-                    
+
+                    // Parse attendance status from ATTENDEE properties
+                    let attendance_status = parse_attendance_status(&event.properties);
+
                     if let Some(start) = start_dt {
                         // Use end time if available, otherwise assume 1 hour duration
                         let end = end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
@@ -189,6 +224,8 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
                                 location,
                                 description,
                                 calendar_uid: source_uid.clone(),
+                                is_all_day,
+                                attendance_status,
                             });
                         }
                     }
@@ -344,6 +381,43 @@ fn parse_color(data: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Parse attendance status from ATTENDEE properties
+/// Looks for an ATTENDEE that appears to be the current user and extracts PARTSTAT
+fn parse_attendance_status(properties: &[ical::property::Property]) -> AttendanceStatus {
+    // Find all ATTENDEE properties
+    for prop in properties.iter().filter(|p| p.name == "ATTENDEE") {
+        // Check if this attendee might be the current user
+        // We look for common patterns in the parameters or value
+        let params = prop.params.as_ref();
+
+        // Extract PARTSTAT from parameters
+        let partstat = params.and_then(|params| {
+            params.iter().find_map(|(name, values)| {
+                if name == "PARTSTAT" {
+                    values.first().map(|v| v.as_str())
+                } else {
+                    None
+                }
+            })
+        });
+
+        // For now, we'll use the first ATTENDEE with a PARTSTAT that isn't the organizer
+        // A more robust solution would match against the user's email addresses
+        if let Some(status) = partstat {
+            match status.to_uppercase().as_str() {
+                "ACCEPTED" => return AttendanceStatus::Accepted,
+                "TENTATIVE" => return AttendanceStatus::Tentative,
+                "DECLINED" => return AttendanceStatus::Declined,
+                "NEEDS-ACTION" => return AttendanceStatus::NeedsAction,
+                _ => {}
+            }
+        }
+    }
+
+    // No ATTENDEE found with PARTSTAT - this is likely a personal event or user is organizer
+    AttendanceStatus::None
 }
 
 fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<DateTime<Local>> {

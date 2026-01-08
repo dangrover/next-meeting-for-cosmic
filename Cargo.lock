@@ -1052,6 +1052,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmic-next-meeting"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "i18n-embed",
+ "i18n-embed-fl",
+ "ical",
+ "libcosmic",
+ "regex",
+ "rust-embed",
+ "serde",
+ "tokio",
+ "zbus 3.15.2",
+]
+
+[[package]]
 name = "cosmic-panel-config"
 version = "0.1.0"
 source = "git+https://github.com/pop-os/cosmic-panel#8eb8a1b6305213ec7402cb2ec24bef6b501b978a"
@@ -2967,23 +2984,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "meeting"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "futures-util",
- "i18n-embed",
- "i18n-embed-fl",
- "ical",
- "libcosmic",
- "regex",
- "rust-embed",
- "serde",
- "tokio",
- "zbus 3.15.2",
 ]
 
 [[package]]

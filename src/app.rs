@@ -144,32 +144,35 @@ pub enum PopupPage {
     JoinButtonSettings,
     LocationSettings,
     CalendarIndicatorSettings,
+    EventsToShowSettings,
 }
 
 impl AppModel {
-    /// Format meeting text based on current display format setting
-    fn format_meeting_text(&self, meeting: &Meeting) -> String {
-        use chrono::Local;
+    /// Get meetings filtered by current settings (all-day events, attendance status)
+    fn filtered_meetings(&self) -> Vec<&Meeting> {
+        use crate::calendar::AttendanceStatus;
+        use crate::config::EventStatusFilter;
 
-        let title = if meeting.title.len() > 40 {
-            format!("{}...", &meeting.title[..37])
-        } else {
-            meeting.title.clone()
-        };
+        self.upcoming_meetings
+            .iter()
+            .filter(|m| {
+                // Filter out all-day events if disabled
+                if !self.config.show_all_day_events && m.is_all_day {
+                    return false;
+                }
 
-        match self.config.display_format {
-            DisplayFormat::Relative => {
-                let now = Local::now();
-                let duration = meeting.start.signed_duration_since(now);
-                let relative = format_relative_time(duration);
-                format!("{}: {}", relative, title)
-            }
-            _ => {
-                // DayAndTime is the default
-                let time_str = format_time(&meeting.start, false);
-                format!("{}: {}", time_str, title)
-            }
-        }
+                // Filter by attendance status
+                match self.config.event_status_filter {
+                    EventStatusFilter::All => true,
+                    EventStatusFilter::Accepted => {
+                        matches!(m.attendance_status, AttendanceStatus::Accepted | AttendanceStatus::None)
+                    }
+                    EventStatusFilter::AcceptedOrTentative => {
+                        matches!(m.attendance_status, AttendanceStatus::Accepted | AttendanceStatus::Tentative | AttendanceStatus::None)
+                    }
+                }
+            })
+            .collect()
     }
 
     /// Main popup page showing meeting info and settings nav
@@ -180,7 +183,8 @@ impl AppModel {
         let mut content = widget::column::with_capacity(8)
             .padding([8, 0]);
 
-        if let Some(meeting) = self.upcoming_meetings.first() {
+        let filtered = self.filtered_meetings();
+        if let Some(meeting) = filtered.first() {
             use chrono::Local;
             let now = Local::now();
             let minutes_until = meeting.start.signed_duration_since(now).num_minutes();
@@ -278,7 +282,7 @@ impl AppModel {
 
             // Upcoming events section
             let upcoming_count = self.config.upcoming_events_count as usize;
-            if upcoming_count > 0 && self.upcoming_meetings.len() > 1 {
+            if upcoming_count > 0 && filtered.len() > 1 {
                 // Divider before "Upcoming" section (matching Power applet pattern)
                 content = content.push(
                     cosmic::applet::padded_control(widget::divider::horizontal::default())
@@ -291,7 +295,7 @@ impl AppModel {
                 );
 
                 let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
-                for meeting in self.upcoming_meetings.iter().skip(1).take(upcoming_count) {
+                for meeting in filtered.iter().skip(1).take(upcoming_count) {
                     let title = if meeting.title.len() > 25 {
                         format!("{}...", &meeting.title[..22])
                     } else {
@@ -392,12 +396,16 @@ impl AppModel {
         content = content.push(widget::vertical_space().height(space.space_xxxs));
 
         // Calendars count for summary
-        let enabled_count = if self.config.enabled_calendar_uids.is_empty() {
-            self.available_calendars.len()
+        let total = self.available_calendars.len();
+        let enabled = if self.config.enabled_calendar_uids.is_empty() {
+            total
         } else {
-            self.config.enabled_calendar_uids.len()
+            // Count only UIDs that still exist in available calendars (filter stale UIDs)
+            self.config.enabled_calendar_uids.iter()
+                .filter(|uid| self.available_calendars.iter().any(|c| &c.uid == *uid))
+                .count()
         };
-        let calendar_summary = fl!("calendars-enabled", count = enabled_count);
+        let calendar_summary = fl!("calendars-enabled", enabled = enabled, total = total);
 
         // Display format dropdown index
         let format_idx = match self.config.display_format {
@@ -430,9 +438,33 @@ impl AppModel {
             (true, true) => fl!("status-both"),
         };
 
-        // Calendars section (its own group)
+        // Filter summary for display
+        use crate::config::EventStatusFilter;
+        let has_allday_filter = !self.config.show_all_day_events;
+        let has_status_filter = self.config.event_status_filter != EventStatusFilter::All;
+
+        let filter_summary = match (has_allday_filter, has_status_filter) {
+            (false, false) => fl!("filter-summary-all"),
+            (true, false) => fl!("filter-summary-no-all-day"),
+            (false, true) => match self.config.event_status_filter {
+                EventStatusFilter::Accepted => fl!("filter-summary-accepted"),
+                EventStatusFilter::AcceptedOrTentative => fl!("filter-summary-tentative"),
+                _ => fl!("filter-summary-all"),
+            },
+            (true, true) => {
+                let status = match self.config.event_status_filter {
+                    EventStatusFilter::Accepted => fl!("filter-summary-accepted"),
+                    EventStatusFilter::AcceptedOrTentative => fl!("filter-summary-tentative"),
+                    _ => fl!("filter-summary-all"),
+                };
+                fl!("filter-summary-combo", allday = fl!("filter-summary-no-all-day"), status = status)
+            }
+        };
+
+        // Calendars and filter section (its own group)
         let calendars_section = widget::list_column()
             .list_item_padding([space.space_xxs, space.space_xs])
+            // Calendars
             .add(
                 widget::row::with_capacity(3)
                     .push(widget::text::body(fl!("calendars-section")))
@@ -450,6 +482,25 @@ impl AppModel {
                     )
                     .align_y(cosmic::iced::Alignment::Center)
                     .width(Length::Fill)
+            )
+            // Filter events
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("filter-events-section")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::button::custom(
+                            widget::row::with_capacity(2)
+                                .push(widget::text::body(filter_summary))
+                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .spacing(space.space_xxs)
+                                .align_y(cosmic::iced::Alignment::Center)
+                        )
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::EventsToShowSettings))
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
             );
 
         content = content.push(calendars_section);
@@ -457,8 +508,8 @@ impl AppModel {
         // More vertical spacing between sections
         content = content.push(widget::vertical_space().height(space.space_xs));
 
-        // Other settings section
-        let other_settings = widget::list_column()
+        // Display settings section
+        let display_settings = widget::list_column()
             .list_item_padding([space.space_xxs, space.space_xs])
             // Display format
             .add(
@@ -484,7 +535,16 @@ impl AppModel {
                     ))
                     .align_y(cosmic::iced::Alignment::Center)
                     .width(Length::Fill)
-            )
+            );
+
+        content = content.push(display_settings);
+
+        // More vertical spacing between sections
+        content = content.push(widget::vertical_space().height(space.space_xs));
+
+        // Meeting details section (join button, location, calendar indicator)
+        let details_settings = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
             // Join button settings
             .add(
                 widget::row::with_capacity(3)
@@ -543,7 +603,7 @@ impl AppModel {
                     .width(Length::Fill)
             );
 
-        content = content.push(other_settings);
+        content = content.push(details_settings);
 
         content.into()
     }
@@ -899,6 +959,81 @@ impl AppModel {
 
         content = content.push(indicator_settings);
 
+        // Description at bottom with smaller font
+        content = content.push(widget::vertical_space().height(space.space_s));
+        content = content.push(widget::text::caption(fl!("calendar-indicator-description")));
+        content = content.push(widget::vertical_space().height(space.space_m));
+
+        content.into()
+    }
+
+    /// Filter events settings page
+    fn view_events_to_show_settings_page(&self) -> Element<'_, Message> {
+        use crate::config::EventStatusFilter;
+
+        let space = spacing();
+        let mut content = widget::column::with_capacity(4)
+            .padding(space.space_xs)
+            .spacing(space.space_xs);
+
+        // Back button header
+        content = content.push(
+            widget::column::with_capacity(2)
+                .push(
+                    widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                        .extra_small()
+                        .padding(space.space_none)
+                        .label(fl!("settings"))
+                        .spacing(space.space_xxxs)
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::Settings))
+                )
+                .push(widget::text::title4(fl!("filter-events-section")))
+                .spacing(space.space_xxxs)
+        );
+
+        // Extra space after header
+        content = content.push(widget::vertical_space().height(space.space_xxxs));
+
+        // Status filter dropdown options
+        let status_options = vec![
+            fl!("status-filter-all"),
+            fl!("status-filter-accepted"),
+            fl!("status-filter-accepted-tentative"),
+        ];
+        let status_idx = match self.config.event_status_filter {
+            EventStatusFilter::All => Some(0),
+            EventStatusFilter::Accepted => Some(1),
+            EventStatusFilter::AcceptedOrTentative => Some(2),
+        };
+
+        // Filter settings group
+        let filter_settings = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
+            // Show all-day events toggle
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("show-all-day-events")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::toggler(self.config.show_all_day_events)
+                            .on_toggle(Message::SetShowAllDayEvents)
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+            )
+            // Status filter dropdown
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("status-filter-section")))
+                    .push(widget::horizontal_space())
+                    .push(widget::dropdown(status_options, status_idx, Message::SetEventStatusFilter))
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+            );
+
+        content = content.push(filter_settings);
+
         content.into()
     }
 }
@@ -1097,6 +1232,8 @@ pub enum Message {
     UpdatePattern(usize, String),
     AddPattern,
     RemovePattern(usize),
+    SetShowAllDayEvents(bool),
+    SetEventStatusFilter(usize),
 }
 
 /// Create a COSMIC application from the app model
@@ -1173,7 +1310,8 @@ impl cosmic::Application for AppModel {
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
 
         // Build panel content based on whether we have meetings
-        let (panel_content, show_panel_join) = if let Some(meeting) = self.upcoming_meetings.first() {
+        let filtered = self.filtered_meetings();
+        let (panel_content, show_panel_join) = if let Some(meeting) = filtered.first() {
             // Truncate title if needed
             let title = if meeting.title.len() > 30 {
                 format!("{}...", &meeting.title[..27])
@@ -1312,6 +1450,7 @@ impl cosmic::Application for AppModel {
             PopupPage::JoinButtonSettings => self.view_join_button_settings_page(),
             PopupPage::LocationSettings => self.view_location_settings_page(),
             PopupPage::CalendarIndicatorSettings => self.view_calendar_indicator_settings_page(),
+            PopupPage::EventsToShowSettings => self.view_events_to_show_settings_page(),
         };
 
         self.core.applet.popup_container(content).into()
@@ -1536,6 +1675,24 @@ impl cosmic::Application for AppModel {
                     if let Some(ref ctx) = self.config_context {
                         let _ = self.config.write_entry(ctx);
                     }
+                }
+            }
+            Message::SetShowAllDayEvents(enabled) => {
+                self.config.show_all_day_events = enabled;
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetEventStatusFilter(idx) => {
+                use crate::config::EventStatusFilter;
+                self.config.event_status_filter = match idx {
+                    0 => EventStatusFilter::All,
+                    1 => EventStatusFilter::Accepted,
+                    2 => EventStatusFilter::AcceptedOrTentative,
+                    _ => EventStatusFilter::All,
+                };
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
                 }
             }
             Message::TogglePopup => {

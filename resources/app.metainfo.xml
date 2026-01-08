@@ -13,7 +13,7 @@
   <provides>
     <id>com.dangrover.next-meeting-app</id>
     <binaries>
-      <binary>meeting</binary>
+      <binary>cosmic-next-meeting</binary>
     </binaries>
   </provides>
   <requires>
