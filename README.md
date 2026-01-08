@@ -23,10 +23,10 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 
 Download the latest release from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases).
 
-### Setting up your calendars
+### Setting Up Calendars
 *  COSMIC DE doesn't have any native calendar app or way to set up online calendars (though one is [apparently in progress](https://github.com/cosmic-utils/calendar)), so you'll need to use Evolution or gnome-online-accounts to do this. 
-* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). The GNOME Calendar app and Evolution both qualify here. 
-* Thunderbird won't work as a data source. But uou can set up the same calendars in EDS and still open Thunderbird from the applet. The applet will honor whatever calendar app is configured as the system calendar app. 
+* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). So if you use GNOME Calendar app or Evolution or the GNOME Online Accounts system, you're all set. You may not have these apps if you are using Pop OS, but they're easy to set up with your calendars.
+* Other, non-EDS calendars (like Thunderbird) won't work as a data source. But uou can set up the same calendars in EDS and still open other calendar apps from the applet. The applet will honor whatever calendar app is configured as the system calendar app. 
 * The applet reads from cached events. If EDS syncs your online calendars, it will see the updates. You can optionally enable a setting to automatically tell EDS to fetch stuff from online calendars.
 
 ### Flatpak (Recommended)
