@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config libxkbcommon-dev \
-            debhelper devscripts just
+            debhelper devscripts just build-essential cargo rustc
 
       - name: Vendor dependencies
         run: |
