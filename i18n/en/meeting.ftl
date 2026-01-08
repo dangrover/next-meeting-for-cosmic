@@ -1,4 +1,4 @@
-app-title = Meeting
+app-title = Next Meeting
 no-meetings = No upcoming meetings
 no-meetings-panel = No meetings
 settings = Settings

@@ -3,7 +3,7 @@
   <id>com.dangrover.next-meeting-app</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MPL-2.0</project_license>
-  <name>Meeting</name>
+  <name>Next Meeting</name>
   <summary>Show next meeting in cosmic panel or dock</summary>
   <icon type="remote" width="64" height="64" scale="1">
     https://github.com/pop-os/cosmic-app-template/raw/main/resources/icons/hicolor/scalable/apps/icon.svg

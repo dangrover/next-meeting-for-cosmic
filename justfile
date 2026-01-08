@@ -11,6 +11,7 @@ appdata-dst := base-dir / 'share' / 'appdata' / appid + '.metainfo.xml'
 bin-dst := base-dir / 'bin' / name
 desktop-dst := base-dir / 'share' / 'applications' / appid + '.desktop'
 icon-dst := base-dir / 'share' / 'icons' / 'hicolor' / 'scalable' / 'apps' / appid + '.svg'
+icon-symbolic-dst := base-dir / 'share' / 'icons' / 'hicolor' / 'symbolic' / 'apps' / appid + '-symbolic.svg'
 
 # Default recipe which runs `just build-release`
 default: build-release
@@ -60,10 +61,11 @@ install:
     install -Dm0644 resources/app.desktop {{desktop-dst}}
     install -Dm0644 resources/app.metainfo.xml {{appdata-dst}}
     install -Dm0644 resources/icon.svg {{icon-dst}}
+    install -Dm0644 resources/icon-symbolic.svg {{icon-symbolic-dst}}
 
 # Uninstalls installed files
 uninstall:
-    rm {{bin-dst}} {{desktop-dst}} {{appdata-dst}} {{icon-dst}}
+    rm {{bin-dst}} {{desktop-dst}} {{appdata-dst}} {{icon-dst}} {{icon-symbolic-dst}}
 
 # Vendor dependencies locally
 vendor:
