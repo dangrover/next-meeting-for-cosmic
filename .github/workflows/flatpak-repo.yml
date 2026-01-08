@@ -10,7 +10,7 @@ jobs:
     name: Build Flatpak
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/andyholmes/flatter/freedesktop:24.08
+      image: ghcr.io/andyholmes/flatter/rust:24.08
       options: --privileged
 
     steps:
