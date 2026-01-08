@@ -82,13 +82,13 @@ vendor-extract:
     tar pxf vendor.tar
 
 # Bump cargo version, create git commit, and create tag
-tag version:
+tag version: update-flatpak-sources
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{version}}"/' '{}' \; -exec git add '{}' \;
     sed -i 's/^cosmic-next-meeting ([^)]*)/cosmic-next-meeting ({{version}}-1)/' debian/changelog
     git add debian/changelog
     cargo check
     cargo clean
-    git add Cargo.lock
+    git add Cargo.lock cargo-sources.json
     git commit -m 'release: {{version}}'
     git tag -a v{{version}} -m 'Release {{version}}'
 
