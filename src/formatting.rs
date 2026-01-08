@@ -53,7 +53,7 @@ pub fn format_panel_time(
 /// Shows minutes only when the event is within 24 hours
 pub fn format_relative_time(duration: chrono::Duration) -> String {
     let total_minutes = duration.num_minutes();
-    if total_minutes < 0 {
+    if total_minutes <= 0 {
         return fl!("time-now");
     }
 

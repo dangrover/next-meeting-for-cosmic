@@ -1729,10 +1729,14 @@ impl cosmic::Application for AppModel {
             };
 
             // Get time string based on display format (smart formatting for date mode)
-            // For in-progress meetings (already started), show "(started)" instead
+            // For in-progress meetings (already started), show "started" instead
+            // For meetings starting right now (within a minute), show "now"
             let is_in_progress = meeting.start <= now;
-            let time_str = if is_in_progress {
+            let is_starting_now = minutes_until <= 0 && minutes_until > -1;
+            let time_str = if is_in_progress && !is_starting_now {
                 fl!("panel-started")
+            } else if is_starting_now || minutes_until == 0 {
+                fl!("time-now")
             } else {
                 match self.config.display_format {
                     DisplayFormat::Relative => {
