@@ -1450,10 +1450,12 @@ impl AppModel {
         // App name
         content = content.push(widget::text::title3(fl!("app-title")));
 
-        // Version
+        // Version with commit hash
         let version = env!("CARGO_PKG_VERSION");
+        let git_hash = env!("GIT_HASH");
+        let version_str = format!("{} ({})", version, git_hash);
         content = content
-            .push(widget::text::body(fl!("version", version = version)).class(secondary_text));
+            .push(widget::text::body(fl!("version", version = version_str)).class(secondary_text));
 
         // Author
         let author = env!("CARGO_PKG_AUTHORS");

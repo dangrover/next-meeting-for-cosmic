@@ -2,7 +2,7 @@ name: Flatpak Repository
 
 on:
   release:
-    types: [published]
+    types: [published, edited]
   workflow_dispatch:
 
 jobs:
