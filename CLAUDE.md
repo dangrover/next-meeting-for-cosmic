@@ -81,3 +81,4 @@ Settings pages use `widget::list_column()` for grouped items with dividers.
 - **Before committing**: Always run `cargo fmt` before committing to ensure code passes CI formatting checks.
 - **Testing before pushing**: Do not push changes without letting the user test first. After making code changes, wait for the user to run `just dev` and verify the changes work correctly. Only push when explicitly asked, or when debugging CI issues.
 - **Atomic commits**: Suggest making commits between unrelated changes to keep history clean. Don't let unrelated work pile up in a single commit.
+- **Releases**: To trigger a release, create a tag with a `v` prefix (e.g., `v0.9.0`). Tags without the `v` prefix will not trigger the release workflow.
