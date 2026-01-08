@@ -1767,7 +1767,7 @@ impl cosmic::Application for AppModel {
 
         // Main panel button with meeting text
         let main_button =
-            widget::button::custom(panel_content.padding([space.space_xxxs, space.space_xs]))
+            widget::button::custom(panel_content.padding([space.space_none, space.space_xs]))
                 .class(cosmic::theme::Button::AppletIcon)
                 .on_press(Message::TogglePopup);
 
