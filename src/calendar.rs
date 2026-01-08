@@ -6,6 +6,7 @@ use ical::parser::ical::IcalParser;
 
 #[derive(Debug, Clone)]
 pub struct Meeting {
+    pub uid: String,
     pub title: String,
     pub start: DateTime<Local>,
     pub end: DateTime<Local>,
@@ -149,6 +150,14 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
 
                         // Only include future meetings
                         if start > now {
+                            let uid = event
+                                .properties
+                                .iter()
+                                .find(|p| p.name == "UID")
+                                .and_then(|p| p.value.as_ref())
+                                .map(|s| s.to_string())
+                                .unwrap_or_default();
+
                             let title = event
                                 .properties
                                 .iter()
@@ -156,22 +165,23 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
                                 .and_then(|p| p.value.as_ref())
                                 .map(|s| s.to_string())
                                 .unwrap_or_else(|| "Untitled Event".to_string());
-                            
+
                             let location = event
                                 .properties
                                 .iter()
                                 .find(|p| p.name == "LOCATION")
                                 .and_then(|p| p.value.as_ref())
                                 .map(|s| s.to_string());
-                            
+
                             let description = event
                                 .properties
                                 .iter()
                                 .find(|p| p.name == "DESCRIPTION")
                                 .and_then(|p| p.value.as_ref())
                                 .map(|s| s.to_string());
-                            
+
                             all_meetings.push(Meeting {
+                                uid,
                                 title,
                                 start,
                                 end,

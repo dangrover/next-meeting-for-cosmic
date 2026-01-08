@@ -2979,6 +2979,7 @@ dependencies = [
  "i18n-embed-fl",
  "ical",
  "libcosmic",
+ "regex",
  "rust-embed",
  "serde",
  "tokio",

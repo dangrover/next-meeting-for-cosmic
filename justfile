@@ -50,20 +50,9 @@ run *args:
 # Build, install, and reload applet for quick dev iteration
 dev: build-release install reload-applet
 
-# Reload applet by restarting panel (session manager handles restart)
+# Reload applet by restarting panel
 reload-applet:
-    #!/usr/bin/env bash
-    # Kill the panel - cosmic-session will auto-restart it with new applet binary
-    pkill -9 -x cosmic-panel 2>/dev/null || true
-    sleep 3
-    if pgrep -x cosmic-panel >/dev/null; then
-        echo "Panel restarted by session manager"
-        if pgrep -x meeting >/dev/null; then
-            echo "Applet running (PID: $(pgrep -x meeting | head -1))"
-        fi
-    else
-        echo "Warning: Panel not restarted - may need to log out/in"
-    fi
+    killall cosmic-panel && cosmic-panel &
 
 # Installs files
 install:

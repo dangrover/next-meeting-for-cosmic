@@ -23,6 +23,7 @@ zbus = { version = "3.14", features = ["tokio", "xml"] }
 ical = "0.8"
 chrono = "0.4"
 serde = { version = "1.0", features = ["derive"] }
+regex = "1"
 
 [dependencies.i18n-embed]
 version = "0.16"

@@ -13,12 +13,15 @@ Meeting is a COSMIC desktop applet that displays the next upcoming meeting in th
 ## Build Commands
 
 ```bash
+just dev              # Build, install, and reload panel - USE THIS FOR TESTING
 just                  # Build release (default)
 just build-debug      # Debug build
 just run              # Build and run for testing
 just check            # Run clippy linter (pedantic)
 just install          # Install to ~/.local
 ```
+
+**Important:** Always use `just dev` when testing changes. The panel loads the installed binary from `~/.local/bin/meeting`, not from `target/`. Running only `cargo build` will not update what the panel displays.
 
 ## Architecture
 
@@ -61,3 +64,14 @@ Translations use Fluent format in `i18n/<lang>/meeting.ftl`. Add new languages b
 - `ical` - iCalendar parsing
 - `tokio` - Async runtime
 - `chrono` - DateTime handling
+
+## UI Patterns
+
+The main popup follows the same pattern as other COSMIC applets (e.g., Power applet):
+
+- Outer column: `.padding([8, 0])` (vertical padding only, no horizontal)
+- Clickable items: `cosmic::applet::menu_button()`
+- Non-interactive content (headings): `cosmic::applet::padded_control()`
+- Dividers: `cosmic::applet::padded_control(widget::divider::horizontal::default()).padding([space_xxs, space_s])`
+
+Settings pages use `widget::list_column()` for grouped items with dividers.
