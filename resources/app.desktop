@@ -1,14 +1,12 @@
 [Desktop Entry]
 Name=Next Meeting
-Comment=Show next meeting in cosmic panel or dock
-Type=Application
-Icon=com.dangrover.next-meeting-app
-Exec=cosmic-next-meeting %F
+Exec=cosmic-next-meeting
 Terminal=false
+Type=Application
 StartupNotify=true
+NotShowIn=COSMIC
+Icon=com.dangrover.next-meeting-app
 Categories=COSMIC
-Keywords=COSMIC
-NoDisplay=true
+Keywords=Meeting;Calendar;Schedule;Panel;Applet;
 X-CosmicApplet=true
 X-CosmicHoverPopup=Auto
-MimeType=

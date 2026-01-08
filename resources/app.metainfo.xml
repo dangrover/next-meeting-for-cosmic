@@ -3,40 +3,61 @@
   <id>com.dangrover.next-meeting-app</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-only</project_license>
-  <name>Next Meeting for COSMIC</name>
+  <project_group>COSMIC</project_group>
+
+  <name>Next Meeting</name>
   <summary>Show your next calendar event in the COSMIC panel</summary>
+
+  <developer id="com.dangrover">
+    <name>Dan Grover</name>
+  </developer>
+
   <description>
-    <p>A beautiful panel applet for the COSMIC desktop that displays your next upcoming calendar event right in your panel.</p>
+    <p>A panel applet for the COSMIC desktop that displays your next upcoming calendar event right in your panel.</p>
     <p>Features include one-click join for video calls (Google Meet, Zoom, Teams, Webex), calendar color indicators, flexible time display, and smart filtering options.</p>
-    <p>Uses Evolution Data Server (EDS) to read user calendars. This needs to be configured separately.</p>
+    <p>Uses Evolution Data Server (EDS) to read user calendars configured via GNOME Online Accounts or Evolution.</p>
   </description>
+
+  <icon type="stock">com.dangrover.next-meeting-app</icon>
+
   <url type="homepage">https://github.com/dangrover/cosmic-next-meeting</url>
-  <url type="vcs-browser">https://github.com/dangrover/cosmic-next-meeting</url>
+  <url type="bugtracker">https://github.com/dangrover/cosmic-next-meeting/issues</url>
+  <url type="contribute">https://github.com/dangrover/cosmic-next-meeting</url>
+  <url type="translate">https://github.com/dangrover/cosmic-next-meeting/tree/main/i18n</url>
+
+  <content_rating type="oars-1.1" />
+
   <launchable type="desktop-id">com.dangrover.next-meeting-app.desktop</launchable>
+
   <provides>
-    <id>com.dangrover.next-meeting-app</id>
+    <id>com.system76.CosmicApplet</id>
     <binary>cosmic-next-meeting</binary>
   </provides>
-  <requires>
-    <display_length compare="ge">360</display_length>
-  </requires>
-  <supports>
-    <control>keyboard</control>
-    <control>pointing</control>
-    <control>touch</control>
-  </supports>
+
   <categories>
     <category>Utility</category>
-    <category>COSMIC</category>
   </categories>
+
   <keywords>
     <keyword>meeting</keyword>
     <keyword>calendar</keyword>
     <keyword>schedule</keyword>
-    <keyword>COSMIC</keyword>
     <keyword>panel</keyword>
     <keyword>applet</keyword>
   </keywords>
-  <content_rating type="oars-1.1" />
-</component>
 
+  <releases>
+    <release version="0.9.0" date="2026-01-07">
+      <description>
+        <p>Initial release with core features:</p>
+        <ul>
+          <li>Display next meeting in panel with title, time, and location</li>
+          <li>One-click join for video calls (Google Meet, Zoom, Teams, Webex)</li>
+          <li>Calendar color indicators</li>
+          <li>Flexible time display (absolute or relative)</li>
+          <li>Filter by calendar, all-day events, or acceptance status</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>
