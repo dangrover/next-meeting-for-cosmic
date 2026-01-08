@@ -1397,7 +1397,11 @@ impl AppModel {
         } else {
             fl!("refresh-now")
         })
-        .leading_icon(widget::icon::from_name("view-refresh-symbolic").size(16).handle());
+        .leading_icon(
+            widget::icon::from_name("view-refresh-symbolic")
+                .size(16)
+                .handle(),
+        );
         let sync_button = if self.is_refreshing {
             sync_button
         } else {
