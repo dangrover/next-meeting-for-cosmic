@@ -21,31 +21,39 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 
 ## Installation
 
-Download the latest release from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases).
+### Flatpak Repository (Recommended)
 
-### Setting Up Calendars
-*  COSMIC DE doesn't have any native calendar app or way to set up online calendars (though one is [apparently in progress](https://github.com/cosmic-utils/calendar)), so you'll need to use Evolution or gnome-online-accounts to do this. 
-* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). So if you use GNOME Calendar app or Evolution or the GNOME Online Accounts system, you're all set. You may not have these apps if you are using Pop OS, but they're easy to set up with your calendars.
-* Other, non-EDS calendars (like Thunderbird) won't work as a data source. But uou can set up the same calendars in EDS and still open other calendar apps from the applet. The applet will honor whatever calendar app is configured as the system calendar app. 
-* The applet reads from cached events. If EDS syncs your online calendars, it will see the updates. You can optionally enable a setting to automatically tell EDS to fetch stuff from online calendars.
-
-### Flatpak (Recommended)
-
-Download the `.flatpak` file, then install it:
+Add the Flatpak repository to get automatic updates:
 
 ```bash
-flatpak install --user cosmic-next-meeting.flatpak
+flatpak remote-add --user --if-not-exists next-meeting https://dangrover.github.io/next-meeting-for-cosmic/index.flatpakrepo
+flatpak install --user next-meeting com.dangrover.next-meeting-app
+```
+
+### Flatpak Bundle
+
+Alternatively, download the `.flatpak` bundle from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases):
+
+```bash
+flatpak install --user cosmic-next-meeting-x86_64.flatpak
 ```
 
 ### Debian/Ubuntu/Pop!_OS
 
-Download the `.deb` file, then install it:
+Download the `.deb` file from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases):
 
 ```bash
 sudo apt install ./cosmic-next-meeting_*.deb
 ```
 
-After installing, you should be able to enable it in Settings.
+After installing, you should be able to enable it in Settings > Desktop > Panel > Applets.
+
+### Setting Up Calendars
+
+* COSMIC DE doesn't have any native calendar app or way to set up online calendars (though one is [apparently in progress](https://github.com/cosmic-utils/calendar)), so you'll need to use Evolution or GNOME Online Accounts to do this.
+* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). So if you use GNOME Calendar app or Evolution or the GNOME Online Accounts system, you're all set. You may not have these apps if you are using Pop!_OS, but they're easy to set up with your calendars.
+* Other, non-EDS calendars (like Thunderbird) won't work as a data source. But you can set up the same calendars in EDS and still open other calendar apps from the applet. The applet will honor whatever calendar app is configured as the system calendar app.
+* The applet reads from cached events. If EDS syncs your online calendars, it will see the updates. You can optionally enable a setting to automatically tell EDS to fetch from online calendars.
 
 ## Development
 
