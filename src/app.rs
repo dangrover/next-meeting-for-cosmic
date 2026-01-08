@@ -1388,23 +1388,27 @@ impl AppModel {
 
         content = content.push(refresh_settings);
 
-        // Sync manually button
+        // Sync manually button (centered, standard size)
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_xs));
 
-        let sync_button = widget::button::icon(widget::icon::from_name("view-refresh-symbolic"))
-            .label(if self.is_refreshing {
-                fl!("refreshing")
-            } else {
-                fl!("refresh-now")
-            });
+        let sync_button = widget::button::standard(if self.is_refreshing {
+            fl!("refreshing")
+        } else {
+            fl!("refresh-now")
+        })
+        .leading_icon(widget::icon::from_name("view-refresh-symbolic").size(16).handle());
         let sync_button = if self.is_refreshing {
             sync_button
         } else {
             sync_button.on_press(Message::RefreshCalendars)
         };
 
-        content = content.push(sync_button);
+        content = content.push(
+            widget::container(sync_button)
+                .width(Length::Fill)
+                .align_x(cosmic::iced::alignment::Horizontal::Center),
+        );
 
         // Description at bottom with secondary color
         content = content.push(widget::vertical_space().height(space.space_s));
