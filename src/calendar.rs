@@ -351,16 +351,17 @@ async fn get_meetings_from_dbus(
 
         // GetObjectList takes an S-expression query string
         // Use occur-in-time-range? to expand recurring events into instances
-        // Query from now to 30 days in the future
+        // Query from 30 minutes ago (to include in-progress meetings) to 30 days in the future
         let now = Local::now();
-        let end = now + chrono::Duration::days(30);
+        let query_start = now - chrono::Duration::minutes(30);
+        let query_end = now + chrono::Duration::days(30);
         // Convert to UTC for the query (EDS expects UTC timestamps)
-        let now_utc = now.with_timezone(&chrono::Utc);
-        let end_utc = end.with_timezone(&chrono::Utc);
+        let query_start_utc = query_start.with_timezone(&chrono::Utc);
+        let query_end_utc = query_end.with_timezone(&chrono::Utc);
         let query = format!(
             "(occur-in-time-range? (make-time \"{}\") (make-time \"{}\"))",
-            now_utc.format("%Y%m%dT%H%M%SZ"),
-            end_utc.format("%Y%m%dT%H%M%SZ")
+            query_start_utc.format("%Y%m%dT%H%M%SZ"),
+            query_end_utc.format("%Y%m%dT%H%M%SZ")
         );
 
         let ics_objects: Vec<String> = match calendar_proxy
@@ -463,7 +464,10 @@ async fn get_meetings_from_dbus(
                         if let Some(start) = start_dt {
                             let end = end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
 
-                            if start > now && start < end {
+                            // Include future meetings or in-progress meetings (started within 30 min)
+                            let is_future = start > now;
+                            let is_in_progress = start <= now && start > query_start && end > now;
+                            if (is_future || is_in_progress) && start < end {
                                 all_meetings.push(Meeting {
                                     uid: uid.clone(),
                                     title: title.clone(),
@@ -522,28 +526,35 @@ async fn get_meetings_from_dbus(
                                 rrule_val,
                                 &exdates,
                                 tz.as_deref(),
-                                now,
-                                end,
+                                query_start,
+                                query_end,
                             );
 
                             for occurrence_start in occurrences {
                                 let occurrence_end = occurrence_start + duration;
 
-                                all_meetings.push(Meeting {
-                                    uid: format!(
-                                        "{}@{}",
-                                        uid,
-                                        occurrence_start.format("%Y%m%dT%H%M%S")
-                                    ),
-                                    title: title.clone(),
-                                    start: occurrence_start,
-                                    end: occurrence_end,
-                                    location: location.clone(),
-                                    description: description.clone(),
-                                    calendar_uid: source_uid.clone(),
-                                    is_all_day,
-                                    attendance_status,
-                                });
+                                // Include future meetings or in-progress meetings
+                                let is_future = occurrence_start > now;
+                                let is_in_progress = occurrence_start <= now
+                                    && occurrence_start > query_start
+                                    && occurrence_end > now;
+                                if is_future || is_in_progress {
+                                    all_meetings.push(Meeting {
+                                        uid: format!(
+                                            "{}@{}",
+                                            uid,
+                                            occurrence_start.format("%Y%m%dT%H%M%S")
+                                        ),
+                                        title: title.clone(),
+                                        start: occurrence_start,
+                                        end: occurrence_end,
+                                        location: location.clone(),
+                                        description: description.clone(),
+                                        calendar_uid: source_uid.clone(),
+                                        is_all_day,
+                                        attendance_status,
+                                    });
+                                }
                             }
                         }
                         continue;
@@ -566,8 +577,11 @@ async fn get_meetings_from_dbus(
                         let meeting_end =
                             end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
 
-                        // Only include future meetings
-                        if start > now {
+                        // Include future meetings or in-progress meetings (started within 30 min)
+                        let is_future = start > now;
+                        let is_in_progress =
+                            start <= now && start > query_start && meeting_end > now;
+                        if is_future || is_in_progress {
                             all_meetings.push(Meeting {
                                 uid,
                                 title,

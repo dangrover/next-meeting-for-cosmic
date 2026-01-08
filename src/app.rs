@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use crate::calendar::{CalendarInfo, Meeting, extract_meeting_url, get_physical_location};
-use crate::config::{Config, DisplayFormat, JoinButtonVisibility, LocationVisibility};
+use crate::config::{
+    Config, DisplayFormat, InProgressMeeting, JoinButtonVisibility, LocationVisibility,
+};
 use crate::fl;
 use crate::formatting::{
     format_backend_name, format_last_updated, format_panel_time, format_relative_time, format_time,
@@ -59,10 +61,13 @@ pub enum PopupPage {
 }
 
 impl AppModel {
-    /// Get meetings filtered by current settings (all-day events, attendance status)
+    /// Get meetings filtered by current settings (all-day events, attendance status, in-progress)
     fn filtered_meetings(&self) -> Vec<&Meeting> {
         use crate::calendar::AttendanceStatus;
         use crate::config::EventStatusFilter;
+        use chrono::Local;
+
+        let now = Local::now();
 
         self.upcoming_meetings
             .iter()
@@ -70,6 +75,22 @@ impl AppModel {
                 // Filter out all-day events if disabled
                 if !self.config.show_all_day_events && m.is_all_day {
                     return false;
+                }
+
+                // Filter in-progress meetings based on config
+                if m.start <= now {
+                    // This is an in-progress meeting (already started)
+                    let minutes_since_start = now.signed_duration_since(m.start).num_minutes();
+                    let include = match self.config.show_in_progress {
+                        InProgressMeeting::Off => false,
+                        InProgressMeeting::Within5m => minutes_since_start <= 5,
+                        InProgressMeeting::Within10m => minutes_since_start <= 10,
+                        InProgressMeeting::Within15m => minutes_since_start <= 15,
+                        InProgressMeeting::Within30m => minutes_since_start <= 30,
+                    };
+                    if !include {
+                        return false;
+                    }
                 }
 
                 // Filter by attendance status
@@ -1186,6 +1207,22 @@ impl AppModel {
             EventStatusFilter::AcceptedOrTentative => Some(2),
         };
 
+        // In-progress meeting dropdown options
+        let in_progress_options = vec![
+            fl!("in-progress-off"),
+            fl!("in-progress-5m"),
+            fl!("in-progress-10m"),
+            fl!("in-progress-15m"),
+            fl!("in-progress-30m"),
+        ];
+        let in_progress_idx = match self.config.show_in_progress {
+            InProgressMeeting::Off => Some(0),
+            InProgressMeeting::Within5m => Some(1),
+            InProgressMeeting::Within10m => Some(2),
+            InProgressMeeting::Within15m => Some(3),
+            InProgressMeeting::Within30m => Some(4),
+        };
+
         // Email summary for navigation link
         let email_count = self.config.additional_emails.len();
         let email_summary = fl!("additional-emails-summary", count = email_count);
@@ -1202,6 +1239,19 @@ impl AppModel {
                         widget::toggler(self.config.show_all_day_events)
                             .on_toggle(Message::SetShowAllDayEvents),
                     )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill),
+            )
+            // In-progress meeting dropdown
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("in-progress-section")))
+                    .push(widget::horizontal_space())
+                    .push(widget::dropdown(
+                        in_progress_options,
+                        in_progress_idx,
+                        Message::SetInProgressMeeting,
+                    ))
                     .align_y(cosmic::iced::Alignment::Center)
                     .width(Length::Fill),
             )
@@ -1544,6 +1594,7 @@ pub enum Message {
     AddPattern,
     RemovePattern(usize),
     SetShowAllDayEvents(bool),
+    SetInProgressMeeting(usize),
     SetEventStatusFilter(usize),
     UpdateEmail(usize, String),
     AddEmail,
@@ -1678,14 +1729,20 @@ impl cosmic::Application for AppModel {
             };
 
             // Get time string based on display format (smart formatting for date mode)
-            let time_str = match self.config.display_format {
-                DisplayFormat::Relative => {
-                    let duration = meeting.start.signed_duration_since(now);
-                    format_relative_time(duration)
-                }
-                _ => {
-                    // Smart date formatting: just time if today, day+time if different day
-                    format_panel_time(&meeting.start, &now)
+            // For in-progress meetings (already started), show "(started)" instead
+            let is_in_progress = meeting.start <= now;
+            let time_str = if is_in_progress {
+                fl!("panel-started")
+            } else {
+                match self.config.display_format {
+                    DisplayFormat::Relative => {
+                        let duration = meeting.start.signed_duration_since(now);
+                        format_relative_time(duration)
+                    }
+                    _ => {
+                        // Smart date formatting: just time if today, day+time if different day
+                        format_panel_time(&meeting.start, &now)
+                    }
                 }
             };
 
@@ -2139,6 +2196,19 @@ impl cosmic::Application for AppModel {
             }
             Message::SetShowAllDayEvents(enabled) => {
                 self.config.show_all_day_events = enabled;
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetInProgressMeeting(idx) => {
+                self.config.show_in_progress = match idx {
+                    0 => InProgressMeeting::Off,
+                    1 => InProgressMeeting::Within5m,
+                    2 => InProgressMeeting::Within10m,
+                    3 => InProgressMeeting::Within15m,
+                    4 => InProgressMeeting::Within30m,
+                    _ => InProgressMeeting::Off,
+                };
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }

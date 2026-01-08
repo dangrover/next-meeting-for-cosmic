@@ -65,6 +65,22 @@ pub enum EventStatusFilter {
     AcceptedOrTentative,
 }
 
+/// Whether to show meetings that have already started
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+pub enum InProgressMeeting {
+    /// Only show future meetings
+    Off,
+    /// Show meetings that started within 5 minutes (default)
+    #[default]
+    Within5m,
+    /// Show meetings that started within 10 minutes
+    Within10m,
+    /// Show meetings that started within 15 minutes
+    Within15m,
+    /// Show meetings that started within 30 minutes
+    Within30m,
+}
+
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
 #[version = 1]
 pub struct Config {
@@ -100,6 +116,8 @@ pub struct Config {
     /// Additional email addresses to identify the user in ATTENDEE fields.
     /// Used in addition to the CalEmailAddress from each calendar.
     pub additional_emails: Vec<String>,
+    /// Whether to show meetings that have already started.
+    pub show_in_progress: InProgressMeeting,
 }
 
 impl Default for Config {
@@ -131,6 +149,7 @@ impl Default for Config {
             show_all_day_events: true,
             event_status_filter: EventStatusFilter::default(),
             additional_emails: Vec::new(),
+            show_in_progress: InProgressMeeting::default(),
         }
     }
 }
