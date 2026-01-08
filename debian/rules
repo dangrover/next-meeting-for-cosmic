@@ -3,17 +3,30 @@
 export CARGO_HOME = $(CURDIR)/debian/cargo
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
+NAME = cosmic-next-meeting
+APPID = com.dangrover.next-meeting-app
+DESTDIR = debian/cosmic-next-meeting
+
 %:
 	dh $@
 
 override_dh_auto_build:
-	just build-vendored
+	# Extract vendored dependencies
+	rm -rf vendor
+	tar pxf vendor.tar
+	# Build with vendored dependencies (offline)
+	cargo build --release --frozen --offline
 
 override_dh_auto_install:
-	just rootdir=debian/cosmic-next-meeting prefix=/usr install
+	install -Dm0755 target/release/$(NAME) $(DESTDIR)/usr/bin/$(NAME)
+	install -Dm0644 resources/app.desktop $(DESTDIR)/usr/share/applications/$(APPID).desktop
+	install -Dm0644 resources/app.metainfo.xml $(DESTDIR)/usr/share/metainfo/$(APPID).metainfo.xml
+	install -Dm0644 resources/icon.svg $(DESTDIR)/usr/share/icons/hicolor/scalable/apps/$(APPID).svg
+	install -Dm0644 resources/icon-symbolic.svg $(DESTDIR)/usr/share/icons/hicolor/symbolic/apps/$(APPID)-symbolic.svg
 
 override_dh_auto_clean:
-	just clean
+	cargo clean || true
+	rm -rf vendor
 
 override_dh_auto_test:
 	# Skip tests during package build

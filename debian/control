@@ -6,8 +6,7 @@ Build-Depends: debhelper-compat (= 13),
                cargo,
                rustc,
                libssl-dev,
-               pkg-config,
-               just
+               pkg-config
 Standards-Version: 4.6.2
 Homepage: https://github.com/dangrover/cosmic-next-meeting
 Rules-Requires-Root: no
