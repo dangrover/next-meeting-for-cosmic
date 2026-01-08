@@ -1573,13 +1573,19 @@ impl cosmic::Application for AppModel {
 
         // Add join button next to panel button if we should show it
         if let Some(url) = show_panel_join {
+            let font_size = space.space_xs + space.space_xxxs;
             row = row.push(
-                widget::button::custom(self.core.applet.text(fl!("join")).font(
-                    cosmic::iced::font::Font {
-                        weight: cosmic::iced::font::Weight::Bold,
-                        ..cosmic::iced::font::Font::DEFAULT
-                    },
-                ))
+                widget::button::custom(
+                    widget::text(fl!("join"))
+                        .size(font_size)
+                        .font(cosmic::iced::font::Font {
+                            weight: cosmic::iced::font::Weight::Bold,
+                            ..cosmic::iced::font::Font::DEFAULT
+                        })
+                        .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
+                            font_size.into(),
+                        )),
+                )
                 .padding([space.space_xxxs, space.space_xxs])
                 .class(cosmic::theme::Button::Suggested)
                 .on_press(Message::OpenMeetingUrl(url)),
