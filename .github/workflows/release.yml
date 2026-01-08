@@ -25,11 +25,7 @@ jobs:
             debhelper devscripts just build-essential cargo rustc
 
       - name: Vendor dependencies
-        run: |
-          mkdir -p .cargo
-          cargo vendor --sync Cargo.toml | head -n -1 > .cargo/config.toml
-          echo 'directory = "vendor"' >> .cargo/config.toml
-          echo >> .cargo/config.toml
+        run: just vendor
 
       - name: Build Debian package
         run: dpkg-buildpackage -us -uc -b
