@@ -302,15 +302,15 @@ impl AppModel {
                         .align_y(cosmic::iced::Alignment::Center)
                         .width(Length::Fill);
 
-                    if self.config.popup_calendar_indicator {
-                        if let Some(dot) = calendar_color_dot::<Message>(
+                    if self.config.popup_calendar_indicator
+                        && let Some(dot) = calendar_color_dot::<Message>(
                             &meeting.calendar_uid,
                             &self.available_calendars,
                             8.0,
                             None,
-                        ) {
-                            row = row.push(dot);
-                        }
+                        )
+                    {
+                        row = row.push(dot);
                     }
 
                     row = row
@@ -713,24 +713,24 @@ impl AppModel {
                 .align_y(cosmic::iced::Alignment::Center);
 
             // Add color circle if color is available
-            if let Some(color) = &calendar.color {
-                if let Some(parsed_color) = parse_hex_color(color) {
-                    row = row.push(
-                        widget::container(widget::Space::new(0, 0))
-                            .width(Length::Fixed(12.0))
-                            .height(Length::Fixed(12.0))
-                            .class(cosmic::theme::Container::custom(move |_theme| {
-                                cosmic::iced_widget::container::Style {
-                                    background: Some(cosmic::iced::Background::Color(parsed_color)),
-                                    border: cosmic::iced::Border {
-                                        radius: 6.0.into(),
-                                        ..Default::default()
-                                    },
+            if let Some(color) = &calendar.color
+                && let Some(parsed_color) = parse_hex_color(color)
+            {
+                row = row.push(
+                    widget::container(widget::Space::new(0, 0))
+                        .width(Length::Fixed(12.0))
+                        .height(Length::Fixed(12.0))
+                        .class(cosmic::theme::Container::custom(move |_theme| {
+                            cosmic::iced_widget::container::Style {
+                                background: Some(cosmic::iced::Background::Color(parsed_color)),
+                                border: cosmic::iced::Border {
+                                    radius: 6.0.into(),
                                     ..Default::default()
-                                }
-                            })),
-                    );
-                }
+                                },
+                                ..Default::default()
+                            }
+                        })),
+                );
             }
 
             row = row
@@ -1397,7 +1397,7 @@ impl cosmic::Application for AppModel {
         let config_context = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).ok();
         let config = config_context
             .as_ref()
-            .map(|ctx| Config::get_entry(ctx).map_or_else(|(_e, c)| c, |c| c))
+            .map(|ctx| Config::get_entry(ctx).unwrap_or_else(|(_e, c)| c))
             .unwrap_or_default();
 
         let enabled_uids = config.enabled_calendar_uids.clone();
@@ -1508,15 +1508,15 @@ impl cosmic::Application for AppModel {
                 .align_y(cosmic::iced::Alignment::Center);
 
             // Add calendar indicator dot if enabled
-            if self.config.panel_calendar_indicator {
-                if let Some(dot) = calendar_color_dot::<Message>(
+            if self.config.panel_calendar_indicator
+                && let Some(dot) = calendar_color_dot::<Message>(
                     &meeting.calendar_uid,
                     &self.available_calendars,
                     8.0,
                     Some(widget::tooltip::Position::Bottom),
-                ) {
-                    content = content.push(dot);
-                }
+                )
+            {
+                content = content.push(dot);
             }
 
             content = content

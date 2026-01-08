@@ -63,7 +63,7 @@ async fn list_calendars(conn: &Connection) -> Result<(), Box<dyn std::error::Err
     let objects: HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>> =
         reply.body()?;
 
-    println!("{:<45} {:<30} {}", "UID", "Display Name", "Type");
+    println!("{:<45} {:<30} Type", "UID", "Display Name");
     println!("{}", "-".repeat(90));
 
     for (_path, interfaces) in objects {
@@ -135,7 +135,7 @@ async fn show_events(
     future_events.sort_by_key(|e| e.start);
 
     println!("Future events ({} found):", future_events.len());
-    println!("{:<25} {}", "Start", "Title");
+    println!("{:<25} Title", "Start");
     println!("{}", "-".repeat(80));
 
     for event in future_events.iter().take(limit) {
@@ -258,16 +258,15 @@ fn parse_ical_datetime(line: &str) -> Option<chrono::DateTime<chrono::Local>> {
     use chrono::{Local, NaiveDateTime, TimeZone};
 
     // Extract the value part (after the colon)
-    let value = line.split(':').last()?;
+    let value = line.split(':').next_back()?;
     let value = value.trim();
 
     // Handle UTC times (ending with Z)
-    if value.ends_with('Z') {
-        let value = &value[..value.len() - 1];
-        if value.len() >= 15 {
-            let naive = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S").ok()?;
-            return Some(chrono::Utc.from_utc_datetime(&naive).with_timezone(&Local));
-        }
+    if let Some(value) = value.strip_suffix('Z')
+        && value.len() >= 15
+    {
+        let naive = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S").ok()?;
+        return Some(chrono::Utc.from_utc_datetime(&naive).with_timezone(&Local));
     }
 
     // Handle local times (YYYYMMDDTHHMMSS)

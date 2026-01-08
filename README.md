@@ -1,6 +1,8 @@
 # Next Meeting for COSMIC
 
-A beautiful panel applet for the [COSMIC desktop environment](https://system76.com/cosmic) that displays your next upcoming calendar event right in your panel, similar to Cron and Notion Calendar on Mac and [gnome-next-meeting-applet](https://github.com/chmouel/gnome-next-meeting-applet). Never miss another meeting again! 
+A beautiful panel applet for the [COSMIC desktop environment](https://system76.com/cosmic) that displays your next upcoming calendar event right in your panel. Never miss another meeting again! 
+
+It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and Fantastical on Mac and [gnome-next-meeting-applet](https://github.com/chmouel/gnome-next-meeting-applet) on GNOME -- but carefully crafted to fit in perfectly on COSMIC!
 
 ![Next Meeting Screenshot](resources/screenshots/panel.png)
 

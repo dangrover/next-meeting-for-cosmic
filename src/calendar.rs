@@ -159,10 +159,11 @@ async fn get_meetings_from_dbus(
             .filter(|e| !e.trim().is_empty())
             .cloned()
             .collect();
-        if let Some(email) = cal_email {
-            if !email.is_empty() && !user_emails.iter().any(|e| e.eq_ignore_ascii_case(&email)) {
-                user_emails.push(email);
-            }
+        if let Some(email) = cal_email
+            && !email.is_empty()
+            && !user_emails.iter().any(|e| e.eq_ignore_ascii_case(&email))
+        {
+            user_emails.push(email);
         }
 
         // GetObjectList takes a query string - empty string gets all events
@@ -193,14 +194,14 @@ async fn get_meetings_from_dbus(
                 for event in calendar.events {
                     // Check if this is an all-day event (DTSTART has VALUE=DATE)
                     let dtstart_prop = event.properties.iter().find(|p| p.name == "DTSTART");
-                    let is_all_day = dtstart_prop.map_or(false, |p| {
+                    let is_all_day = dtstart_prop.is_some_and(|p| {
                         // Check if VALUE=DATE is in the parameters or if the value is just a date (8 digits)
-                        let has_date_param = p.params.as_ref().map_or(false, |params| {
+                        let has_date_param = p.params.as_ref().is_some_and(|params| {
                             params.iter().any(|(name, values)| {
                                 name == "VALUE" && values.iter().any(|v| v == "DATE")
                             })
                         });
-                        let value_is_date = p.value.as_ref().map_or(false, |v| {
+                        let value_is_date = p.value.as_ref().is_some_and(|v| {
                             let v = v.trim();
                             v.len() == 8 && v.chars().all(|c| c.is_ascii_digit())
                         });
@@ -324,7 +325,7 @@ async fn get_calendar_source_uids(conn: &Connection) -> Option<Vec<String>> {
             });
 
             // Get the Data (source configuration) and check for [Calendar] section
-            let has_calendar = source_props.get("Data").map_or(false, |v| {
+            let has_calendar = source_props.get("Data").is_some_and(|v| {
                 if let Some(Value::Str(s)) = v.downcast_ref::<Value>() {
                     s.contains("[Calendar]")
                 } else {
@@ -332,10 +333,10 @@ async fn get_calendar_source_uids(conn: &Connection) -> Option<Vec<String>> {
                 }
             });
 
-            if let Some(uid) = uid {
-                if has_calendar {
-                    source_uids.push(uid);
-                }
+            if let Some(uid) = uid
+                && has_calendar
+            {
+                source_uids.push(uid);
             }
         }
     }
@@ -387,17 +388,16 @@ async fn get_calendars_from_dbus(conn: &Connection) -> Option<Vec<CalendarInfo>>
                 }
             });
 
-            if let (Some(uid), Some(data)) = (uid, data) {
-                // Only include if it has a [Calendar] section
-                if data.contains("[Calendar]") {
-                    let display_name = parse_display_name(&data).unwrap_or_else(|| uid.clone());
-                    let color = parse_color(&data);
-                    calendars.push(CalendarInfo {
-                        uid,
-                        display_name,
-                        color,
-                    });
-                }
+            if let (Some(uid), Some(data)) = (uid, data)
+                && data.contains("[Calendar]")
+            {
+                let display_name = parse_display_name(&data).unwrap_or_else(|| uid.clone());
+                let color = parse_color(&data);
+                calendars.push(CalendarInfo {
+                    uid,
+                    display_name,
+                    color,
+                });
             }
         }
     }
@@ -514,7 +514,7 @@ fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<Dat
 
     // Extract the actual datetime value (after the last colon if present)
     let value = if value.contains(':') {
-        value.split(':').last().unwrap_or(value)
+        value.split(':').next_back().unwrap_or(value)
     } else {
         value
     };
@@ -526,29 +526,28 @@ fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<Dat
     }
 
     // Handle UTC times (ending with Z)
-    if value.ends_with('Z') {
-        let value = &value[..value.len() - 1];
-        if value.len() >= 15 {
-            if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S") {
-                return Some(chrono::Utc.from_utc_datetime(&naive).with_timezone(&Local));
-            }
-        }
+    if let Some(value) = value.strip_suffix('Z')
+        && value.len() >= 15
+        && let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S")
+    {
+        return Some(chrono::Utc.from_utc_datetime(&naive).with_timezone(&Local));
     }
 
     // Try parsing as YYYYMMDDTHHMMSS format (local time)
-    if value.len() >= 15 && value.contains('T') {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S") {
-            return Local.from_local_datetime(&naive).single();
-        }
+    if value.len() >= 15
+        && value.contains('T')
+        && let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S")
+    {
+        return Local.from_local_datetime(&naive).single();
     }
 
     // Try parsing as date only (YYYYMMDD)
-    if value.len() == 8 && value.chars().all(|c| c.is_ascii_digit()) {
-        if let Ok(naive) =
+    if value.len() == 8
+        && value.chars().all(|c| c.is_ascii_digit())
+        && let Ok(naive) =
             NaiveDateTime::parse_from_str(&format!("{}T000000", value), "%Y%m%dT%H%M%S")
-        {
-            return Local.from_local_datetime(&naive).single();
-        }
+    {
+        return Local.from_local_datetime(&naive).single();
     }
 
     None
@@ -617,4 +616,189 @@ pub fn get_physical_location(meeting: &Meeting, url_patterns: &[String]) -> Opti
     }
 
     Some(location.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Datelike, Timelike};
+
+    // Tests for parse_display_name
+    #[test]
+    fn test_parse_display_name_simple() {
+        let data = "[Data Source]\nDisplayName=Work Calendar\nEnabled=true";
+        assert_eq!(parse_display_name(data), Some("Work Calendar".to_string()));
+    }
+
+    #[test]
+    fn test_parse_display_name_with_sections() {
+        let data = "[Data Source]\nDisplayName=Personal\n[Calendar]\nBackendName=local";
+        assert_eq!(parse_display_name(data), Some("Personal".to_string()));
+    }
+
+    #[test]
+    fn test_parse_display_name_missing() {
+        let data = "[Data Source]\nEnabled=true\n[Calendar]";
+        assert_eq!(parse_display_name(data), None);
+    }
+
+    // Tests for parse_color
+    #[test]
+    fn test_parse_color_hex() {
+        let data = "[Calendar]\nColor=#62a0ea\nBackendName=local";
+        assert_eq!(parse_color(data), Some("#62a0ea".to_string()));
+    }
+
+    #[test]
+    fn test_parse_color_missing() {
+        let data = "[Calendar]\nBackendName=local";
+        assert_eq!(parse_color(data), None);
+    }
+
+    // Tests for parse_ical_datetime
+    #[test]
+    fn test_parse_ical_datetime_local() {
+        let now = Local::now();
+        let result = parse_ical_datetime("20240221T123000", &now).unwrap();
+        assert_eq!(result.year(), 2024);
+        assert_eq!(result.month(), 2);
+        assert_eq!(result.day(), 21);
+        assert_eq!(result.hour(), 12);
+        assert_eq!(result.minute(), 30);
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_utc() {
+        let now = Local::now();
+        let result = parse_ical_datetime("20240221T123000Z", &now).unwrap();
+        assert_eq!(result.year(), 2024);
+        assert_eq!(result.month(), 2);
+        assert_eq!(result.day(), 21);
+        // Hour may differ due to timezone conversion
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_with_tzid() {
+        let now = Local::now();
+        let result = parse_ical_datetime("TZID=America/Los_Angeles:20240221T123000", &now).unwrap();
+        assert_eq!(result.year(), 2024);
+        assert_eq!(result.month(), 2);
+        assert_eq!(result.day(), 21);
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_date_only() {
+        let now = Local::now();
+        let result = parse_ical_datetime("20250527", &now).unwrap();
+        assert_eq!(result.year(), 2025);
+        assert_eq!(result.month(), 5);
+        assert_eq!(result.day(), 27);
+        assert_eq!(result.hour(), 0);
+        assert_eq!(result.minute(), 0);
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_value_date() {
+        let now = Local::now();
+        let result = parse_ical_datetime("VALUE=DATE:20250527", &now).unwrap();
+        assert_eq!(result.year(), 2025);
+        assert_eq!(result.month(), 5);
+        assert_eq!(result.day(), 27);
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_invalid() {
+        let now = Local::now();
+        assert!(parse_ical_datetime("invalid", &now).is_none());
+        assert!(parse_ical_datetime("", &now).is_none());
+    }
+
+    // Helper to create a test meeting
+    fn make_test_meeting(location: Option<&str>, description: Option<&str>) -> Meeting {
+        Meeting {
+            uid: "test-uid".to_string(),
+            title: "Test Meeting".to_string(),
+            start: Local::now(),
+            end: Local::now() + chrono::Duration::hours(1),
+            location: location.map(String::from),
+            description: description.map(String::from),
+            calendar_uid: "cal-uid".to_string(),
+            is_all_day: false,
+            attendance_status: AttendanceStatus::None,
+        }
+    }
+
+    // Tests for extract_meeting_url
+    #[test]
+    fn test_extract_meeting_url_from_location() {
+        let patterns = vec![r"https://meet\.google\.com/[a-z-]+".to_string()];
+        let meeting = make_test_meeting(Some("https://meet.google.com/abc-defg-hij"), None);
+        let url = extract_meeting_url(&meeting, &patterns);
+        assert_eq!(
+            url,
+            Some("https://meet.google.com/abc-defg-hij".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_meeting_url_from_description() {
+        let patterns = vec![r"https://zoom\.us/j/\d+".to_string()];
+        let meeting = make_test_meeting(
+            Some("Conference Room A"),
+            Some("Join: https://zoom.us/j/123456789"),
+        );
+        let url = extract_meeting_url(&meeting, &patterns);
+        assert_eq!(url, Some("https://zoom.us/j/123456789".to_string()));
+    }
+
+    #[test]
+    fn test_extract_meeting_url_location_priority() {
+        let patterns = vec![r"https://meet\.google\.com/[a-z-]+".to_string()];
+        let meeting = make_test_meeting(
+            Some("https://meet.google.com/loc-ation"),
+            Some("https://meet.google.com/desc-ription"),
+        );
+        let url = extract_meeting_url(&meeting, &patterns);
+        // Location should be checked first
+        assert_eq!(url, Some("https://meet.google.com/loc-ation".to_string()));
+    }
+
+    #[test]
+    fn test_extract_meeting_url_no_match() {
+        let patterns = vec![r"https://meet\.google\.com/[a-z-]+".to_string()];
+        let meeting = make_test_meeting(Some("Conference Room B"), None);
+        assert!(extract_meeting_url(&meeting, &patterns).is_none());
+    }
+
+    #[test]
+    fn test_extract_meeting_url_empty_patterns() {
+        let patterns: Vec<String> = vec![];
+        let meeting = make_test_meeting(Some("https://meet.google.com/abc-def"), None);
+        assert!(extract_meeting_url(&meeting, &patterns).is_none());
+    }
+
+    // Tests for get_physical_location
+    #[test]
+    fn test_get_physical_location_room() {
+        let patterns = vec![r"https://meet\.google\.com/[a-z-]+".to_string()];
+        let meeting = make_test_meeting(Some("Conference Room A"), None);
+        assert_eq!(
+            get_physical_location(&meeting, &patterns),
+            Some("Conference Room A".to_string())
+        );
+    }
+
+    #[test]
+    fn test_get_physical_location_url_only() {
+        let patterns = vec![r"https://meet\.google\.com/[a-z-]+".to_string()];
+        let meeting = make_test_meeting(Some("https://meet.google.com/abc-defg-hij"), None);
+        assert!(get_physical_location(&meeting, &patterns).is_none());
+    }
+
+    #[test]
+    fn test_get_physical_location_generic_url() {
+        let patterns: Vec<String> = vec![];
+        let meeting = make_test_meeting(Some("https://example.com/meeting"), None);
+        assert!(get_physical_location(&meeting, &patterns).is_none());
+    }
 }
