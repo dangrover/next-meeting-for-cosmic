@@ -21,7 +21,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev libssl-dev pkg-config
+          sudo apt-get install -y dpkg-dev libssl-dev pkg-config libxkbcommon-dev
 
       - name: Build release binary
         run: cargo build --release
