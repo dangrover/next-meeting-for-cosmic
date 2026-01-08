@@ -363,14 +363,16 @@ async fn get_meetings_from_dbus(
             end_utc.format("%Y%m%dT%H%M%SZ")
         );
 
-        let ics_objects: Vec<String> =
-            match calendar_proxy.call_method("GetObjectList", &(query.as_str(),)).await {
-                Ok(reply) => match reply.body::<Vec<String>>() {
-                    Ok(objects) => objects,
-                    Err(_) => continue,
-                },
+        let ics_objects: Vec<String> = match calendar_proxy
+            .call_method("GetObjectList", &(query.as_str(),))
+            .await
+        {
+            Ok(reply) => match reply.body::<Vec<String>>() {
+                Ok(objects) => objects,
                 Err(_) => continue,
-            };
+            },
+            Err(_) => continue,
+        };
 
         // Step 4: Parse iCalendar objects and extract meetings
         for ics_object in ics_objects {
@@ -459,8 +461,7 @@ async fn get_meetings_from_dbus(
                             .and_then(|v| parse_ical_datetime(v, &now));
 
                         if let Some(start) = start_dt {
-                            let end =
-                                end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
+                            let end = end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
 
                             if start > now && start < end {
                                 all_meetings.push(Meeting {
@@ -982,9 +983,7 @@ fn expand_rrule(
     range_end: DateTime<Local>,
 ) -> Vec<DateTime<Local>> {
     // Parse the timezone
-    let tz = tz_str
-        .and_then(parse_ical_timezone)
-        .unwrap_or(Tz::UTC);
+    let tz = tz_str.and_then(parse_ical_timezone).unwrap_or(Tz::UTC);
 
     // Parse the DTSTART value (just the time part, e.g., "20251211T080000")
     let dtstart_str = if dtstart_val.contains(':') {

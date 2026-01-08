@@ -4,8 +4,8 @@ use crate::calendar::{CalendarInfo, Meeting, extract_meeting_url, get_physical_l
 use crate::config::{Config, DisplayFormat, JoinButtonVisibility, LocationVisibility};
 use crate::fl;
 use crate::formatting::{
-    format_backend_name, format_last_updated, format_panel_time, format_relative_time,
-    format_time, parse_hex_color,
+    format_backend_name, format_last_updated, format_panel_time, format_relative_time, format_time,
+    parse_hex_color,
 };
 use crate::widgets::{
     calendar_color_dot, display_format_options, email_input_id, featured_button_style,
@@ -732,14 +732,16 @@ impl AppModel {
             }
 
             // Calendar name and metadata in a column
-            let mut name_col = widget::column::with_capacity(2)
-                .spacing(space.space_xxxs);
+            let mut name_col = widget::column::with_capacity(2).spacing(space.space_xxxs);
 
             name_col = name_col.push(widget::text::body(&calendar.display_name));
 
             // Build secondary line with backend type and/or last updated time
             let backend_str = calendar.backend.as_ref().map(|b| format_backend_name(b));
-            let updated_str = calendar.last_synced.as_ref().map(|s| format_last_updated(s));
+            let updated_str = calendar
+                .last_synced
+                .as_ref()
+                .map(|s| format_last_updated(s));
 
             let secondary_line = match (backend_str, updated_str) {
                 (Some(backend), Some(updated)) => Some(format!("{backend} · {updated}")),
@@ -754,8 +756,7 @@ impl AppModel {
 
             // Create toggler - disabled for non-meeting sources (contacts, weather, birthdays)
             let toggler = if is_meeting_source {
-                widget::toggler(is_enabled)
-                    .on_toggle(move |_| Message::ToggleCalendar(uid.clone()))
+                widget::toggler(is_enabled).on_toggle(move |_| Message::ToggleCalendar(uid.clone()))
             } else {
                 // Non-meeting sources: show disabled toggle (no on_toggle = non-interactive)
                 widget::toggler(false)
