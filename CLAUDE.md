@@ -78,4 +78,9 @@ Settings pages use `widget::list_column()` for grouped items with dividers.
 
 ## Workflow
 
+- **Branching strategy**:
+  - `main` — stable releases only
+  - `dev` — development branch for new features
+  - Features and non-urgent changes go to `dev`; hotfixes can go directly to `main`
+  - Releases are created by merging `dev` into `main` and tagging
 - **Atomic commits**: Suggest making commits between unrelated changes to keep history clean. Don't let unrelated work pile up in a single commit.
