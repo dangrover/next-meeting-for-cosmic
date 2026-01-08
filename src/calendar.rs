@@ -12,6 +12,7 @@ pub struct Meeting {
     pub end: DateTime<Local>,
     pub location: Option<String>,
     pub description: Option<String>,
+    pub calendar_uid: String,
 }
 
 #[derive(Debug, Clone)]
@@ -187,6 +188,7 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
                                 end,
                                 location,
                                 description,
+                                calendar_uid: source_uid.clone(),
                             });
                         }
                     }

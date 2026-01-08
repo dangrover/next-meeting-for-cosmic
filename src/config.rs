@@ -72,6 +72,10 @@ pub struct Config {
     pub popup_location: LocationVisibility,
     /// When to show the physical location in the panel.
     pub panel_location: LocationVisibility,
+    /// Show calendar color indicator in panel.
+    pub panel_calendar_indicator: bool,
+    /// Show calendar color indicator in popup.
+    pub popup_calendar_indicator: bool,
     /// Regex patterns to detect meeting URLs in location/description.
     pub meeting_url_patterns: Vec<String>,
 }
@@ -86,6 +90,8 @@ impl Default for Config {
             panel_join_button: JoinButtonVisibility::ShowIf15m,
             popup_location: LocationVisibility::default(),
             panel_location: LocationVisibility::default(),
+            panel_calendar_indicator: false,
+            popup_calendar_indicator: true,
             meeting_url_patterns: vec![
                 // Google Meet
                 r"https://meet\.google\.com/[a-z-]+".to_string(),

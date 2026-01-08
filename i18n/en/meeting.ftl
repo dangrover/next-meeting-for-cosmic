@@ -45,3 +45,6 @@ time-in-hours = in { $hours }h
 time-in-minutes = in { $minutes }m
 panel-time-location = ({ $time } in { $location })
 panel-time = ({ $time })
+calendar-indicator-section = Calendar indicator
+panel-indicator = In panel
+popup-indicator = In popup

@@ -143,6 +143,7 @@ pub enum PopupPage {
     Calendars,
     JoinButtonSettings,
     LocationSettings,
+    CalendarIndicatorSettings,
 }
 
 impl AppModel {
@@ -221,9 +222,22 @@ impl AppModel {
             let next_meeting_uid = meeting.uid.clone();
             let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
 
+            // Build title row with optional calendar indicator
+            let title_row = if self.config.popup_calendar_indicator {
+                let mut row = widget::row::with_capacity(2)
+                    .spacing(space.space_xxs)
+                    .align_y(cosmic::iced::Alignment::Center);
+                if let Some(dot) = calendar_color_dot::<Message>(&meeting.calendar_uid, &self.available_calendars, 10.0, Some(widget::tooltip::Position::Top)) {
+                    row = row.push(dot);
+                }
+                row.push(widget::text::title4(&meeting.title))
+            } else {
+                widget::row::with_capacity(1).push(widget::text::title4(&meeting.title))
+            };
+
             // Build meeting info column with title, time, and optional location
             let mut meeting_column = widget::column::with_capacity(3)
-                .push(widget::text::title4(&meeting.title))
+                .push(title_row)
                 .push(widget::text::body(time_str).class(secondary_text))
                 .spacing(space.space_xxxs)
                 .width(Length::Fill);
@@ -286,17 +300,26 @@ impl AppModel {
                     let time_str = format_time(&meeting.start, false);
                     let uid = meeting.uid.clone();
 
+                    // Build row with optional calendar indicator
+                    let mut row = widget::row::with_capacity(4)
+                        .spacing(space.space_xs)
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill);
+
+                    if self.config.popup_calendar_indicator {
+                        if let Some(dot) = calendar_color_dot::<Message>(&meeting.calendar_uid, &self.available_calendars, 8.0, None) {
+                            row = row.push(dot);
+                        }
+                    }
+
+                    row = row
+                        .push(widget::text::body(title))
+                        .push(widget::horizontal_space())
+                        .push(widget::text::body(time_str).class(secondary_text));
+
                     content = content.push(
-                        cosmic::applet::menu_button(
-                            widget::row::with_capacity(3)
-                                .push(widget::text::body(title))
-                                .push(widget::horizontal_space())
-                                .push(widget::text::body(time_str).class(secondary_text))
-                                .spacing(space.space_xs)
-                                .align_y(cosmic::iced::Alignment::Center)
-                                .width(Length::Fill)
-                        )
-                        .on_press(Message::OpenEvent(uid))
+                        cosmic::applet::menu_button(row)
+                            .on_press(Message::OpenEvent(uid))
                     );
                 }
             }
@@ -399,6 +422,14 @@ impl AppModel {
             _ => fl!("status-both"),
         };
 
+        // Calendar indicator status summary
+        let indicator_status = match (self.config.panel_calendar_indicator, self.config.popup_calendar_indicator) {
+            (false, false) => fl!("status-off"),
+            (false, true) => fl!("status-popup"),
+            (true, false) => fl!("status-panel"),
+            (true, true) => fl!("status-both"),
+        };
+
         // Calendars section (its own group)
         let calendars_section = widget::list_column()
             .list_item_padding([space.space_xxs, space.space_xs])
@@ -488,6 +519,25 @@ impl AppModel {
                         )
                         .class(cosmic::theme::Button::Link)
                         .on_press(Message::Navigate(PopupPage::LocationSettings))
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+            )
+            // Calendar indicator settings
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("calendar-indicator-section")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::button::custom(
+                            widget::row::with_capacity(2)
+                                .push(widget::text::body(indicator_status))
+                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .spacing(space.space_xxs)
+                                .align_y(cosmic::iced::Alignment::Center)
+                        )
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::CalendarIndicatorSettings))
                     )
                     .align_y(cosmic::iced::Alignment::Center)
                     .width(Length::Fill)
@@ -792,6 +842,65 @@ impl AppModel {
 
         content.into()
     }
+
+    /// Calendar indicator settings page
+    fn view_calendar_indicator_settings_page(&self) -> Element<'_, Message> {
+        let space = spacing();
+        let mut content = widget::column::with_capacity(4)
+            .padding(space.space_xs)
+            .spacing(space.space_xs);
+
+        // Back button header
+        content = content.push(
+            widget::column::with_capacity(2)
+                .push(
+                    widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                        .extra_small()
+                        .padding(space.space_none)
+                        .label(fl!("settings"))
+                        .spacing(space.space_xxxs)
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::Settings))
+                )
+                .push(widget::text::title4(fl!("calendar-indicator-section")))
+                .spacing(space.space_xxxs)
+        );
+
+        // Extra space after header
+        content = content.push(widget::vertical_space().height(space.space_xxxs));
+
+        // Calendar indicator settings group
+        let indicator_settings = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
+            // Panel indicator toggle
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("panel-indicator")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::toggler(self.config.panel_calendar_indicator)
+                            .on_toggle(Message::SetPanelCalendarIndicator)
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+            )
+            // Popup indicator toggle
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("popup-indicator")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::toggler(self.config.popup_calendar_indicator)
+                            .on_toggle(Message::SetPopupCalendarIndicator)
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+            );
+
+        content = content.push(indicator_settings);
+
+        content.into()
+    }
 }
 
 /// Parse a hex color string (e.g., "#62a0ea") to an iced Color
@@ -804,6 +913,39 @@ fn parse_hex_color(hex: &str) -> Option<cosmic::iced::Color> {
     let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
     let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
     Some(cosmic::iced::Color::from_rgb8(r, g, b))
+}
+
+/// Create a calendar color indicator dot widget with optional tooltip showing calendar name
+fn calendar_color_dot<'a, M: 'a>(
+    calendar_uid: &str,
+    calendars: &[CalendarInfo],
+    size: f32,
+    tooltip_position: Option<widget::tooltip::Position>,
+) -> Option<Element<'a, M>> {
+    // Find the calendar by UID and get its color
+    let calendar = calendars.iter().find(|c| c.uid == calendar_uid)?;
+    let color_hex = calendar.color.as_ref()?;
+    let color = parse_hex_color(color_hex)?;
+    let calendar_name = calendar.display_name.clone();
+
+    let dot = widget::container(widget::Space::new(0, 0))
+        .width(Length::Fixed(size))
+        .height(Length::Fixed(size))
+        .class(cosmic::theme::Container::custom(move |_theme| {
+            cosmic::iced_widget::container::Style {
+                background: Some(cosmic::iced::Background::Color(color)),
+                border: cosmic::iced::Border {
+                    radius: (size / 2.0).into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        }));
+
+    Some(match tooltip_position {
+        Some(pos) => widget::tooltip(dot, widget::text(calendar_name), pos).into(),
+        None => dot.into(),
+    })
 }
 
 /// Format a duration as relative time (e.g., "in 2d 3h" or "in 2h 30m")
@@ -950,6 +1092,8 @@ pub enum Message {
     SetPanelJoinButton(usize),
     SetPopupLocation(usize),
     SetPanelLocation(usize),
+    SetPanelCalendarIndicator(bool),
+    SetPopupCalendarIndicator(bool),
     UpdatePattern(usize, String),
     AddPattern,
     RemovePattern(usize),
@@ -1075,8 +1219,19 @@ impl cosmic::Application for AppModel {
                 None => format!("  {}", fl!("panel-time", time = time_str)),
             };
 
-            // Create styled text: "Title (time in Location)"
-            let content = widget::row::with_capacity(2)
+            // Create styled text with optional calendar indicator: "[dot] Title (time in Location)"
+            let mut content = widget::row::with_capacity(3)
+                .spacing(space.space_xxs)
+                .align_y(cosmic::iced::Alignment::Center);
+
+            // Add calendar indicator dot if enabled
+            if self.config.panel_calendar_indicator {
+                if let Some(dot) = calendar_color_dot::<Message>(&meeting.calendar_uid, &self.available_calendars, 8.0, Some(widget::tooltip::Position::Bottom)) {
+                    content = content.push(dot);
+                }
+            }
+
+            content = content
                 .push(
                     widget::text(title)
                         .font(cosmic::iced::font::Font {
@@ -1087,8 +1242,7 @@ impl cosmic::Application for AppModel {
                 .push(
                     widget::text(info_str)
                         .class(secondary_text)
-                )
-                .align_y(cosmic::iced::Alignment::Center);
+                );
             let join_url = match self.config.panel_join_button {
                 JoinButtonVisibility::Hide => None,
                 JoinButtonVisibility::Show => {
@@ -1157,6 +1311,7 @@ impl cosmic::Application for AppModel {
             PopupPage::Calendars => self.view_calendars_page(),
             PopupPage::JoinButtonSettings => self.view_join_button_settings_page(),
             PopupPage::LocationSettings => self.view_location_settings_page(),
+            PopupPage::CalendarIndicatorSettings => self.view_calendar_indicator_settings_page(),
         };
 
         self.core.applet.popup_container(content).into()
@@ -1175,13 +1330,16 @@ impl cosmic::Application for AppModel {
         let upcoming_count = self.config.upcoming_events_count as usize;
 
         Subscription::batch(vec![
-            // Periodically refresh calendar data
+            // Periodically refresh calendar and meeting data
             Subscription::run_with_id(
                 std::any::TypeId::of::<CalendarSubscription>(),
                 cosmic::iced::stream::channel(4, move |mut channel| async move {
                     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
                     loop {
                         interval.tick().await;
+                        // Refresh both calendars and meetings
+                        let calendars = crate::calendar::get_available_calendars().await;
+                        let _ = channel.send(Message::CalendarsLoaded(calendars)).await;
                         let meetings = crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await;
                         let _ = channel.send(Message::MeetingsUpdated(meetings)).await;
                     }
@@ -1342,6 +1500,18 @@ impl cosmic::Application for AppModel {
                     5 => LocationVisibility::ShowIf5m,
                     _ => LocationVisibility::Show,
                 };
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetPanelCalendarIndicator(enabled) => {
+                self.config.panel_calendar_indicator = enabled;
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetPopupCalendarIndicator(enabled) => {
+                self.config.popup_calendar_indicator = enabled;
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }
