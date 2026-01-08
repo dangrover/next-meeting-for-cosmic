@@ -3,18 +3,19 @@
   <id>com.dangrover.next-meeting-app</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-only</project_license>
-  <name>Next Meeting</name>
-  <summary>Show next meeting in cosmic panel or dock</summary>
-  <icon type="remote" width="64" height="64" scale="1">
-    https://github.com/pop-os/cosmic-app-template/raw/main/resources/icons/hicolor/scalable/apps/icon.svg
-  </icon>
-  <url type="vcs-browser">https://github.com/pop-os/cosmic-app-template</url>
+  <name>Next Meeting for COSMIC</name>
+  <summary>Show your next calendar event in the COSMIC panel</summary>
+  <description>
+    <p>A beautiful panel applet for the COSMIC desktop that displays your next upcoming calendar event right in your panel.</p>
+    <p>Features include one-click join for video calls (Google Meet, Zoom, Teams, Webex), calendar color indicators, flexible time display, and smart filtering options.</p>
+    <p>Uses Evolution Data Server (EDS) to read user calendars. This needs to be configured separately.</p>
+  </description>
+  <url type="homepage">https://github.com/dangrover/cosmic-next-meeting</url>
+  <url type="vcs-browser">https://github.com/dangrover/cosmic-next-meeting</url>
   <launchable type="desktop-id">com.dangrover.next-meeting-app.desktop</launchable>
   <provides>
     <id>com.dangrover.next-meeting-app</id>
-    <binaries>
-      <binary>cosmic-next-meeting</binary>
-    </binaries>
+    <binary>cosmic-next-meeting</binary>
   </provides>
   <requires>
     <display_length compare="ge">360</display_length>
@@ -25,10 +26,16 @@
     <control>touch</control>
   </supports>
   <categories>
+    <category>Utility</category>
     <category>COSMIC</category>
   </categories>
   <keywords>
+    <keyword>meeting</keyword>
+    <keyword>calendar</keyword>
+    <keyword>schedule</keyword>
     <keyword>COSMIC</keyword>
+    <keyword>panel</keyword>
+    <keyword>applet</keyword>
   </keywords>
   <content_rating type="oars-1.1" />
 </component>

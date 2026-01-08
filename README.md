@@ -1,14 +1,13 @@
 # Next Meeting for COSMIC
 
-A beautiful panel applet for the [COSMIC desktop environment](https://system76.com/cosmic) that displays your next upcoming calendar event right in your panel, similar to Cron and Notion Calendar on Mac and gnome-next-meeting for GNOME. 
+A beautiful panel applet for the [COSMIC desktop environment](https://system76.com/cosmic) that displays your next upcoming calendar event right in your panel, similar to Cron and Notion Calendar on Mac and [gnome-next-meeting-applet](https://github.com/chmouel/gnome-next-meeting-applet). Never miss another meeting again! 
 
 ![Next Meeting Screenshot](screenshot.png)
 
 ## Features
 
 - 📅 **See your next meeting at a glance** — Shows the meeting title, time, and location right in your panel
-- 🔗 **One-click join** — Detects video call URLs (Google Meet, Zoom, Teams, Webex) and shows a "Join" button
-- 🎨 **Calendar color indicators** — Colored dots show which calendar each event is from
+- 🔗 **One-click join** — Detects video call URLs (Google Meet, Zoom, Teams, Webex) and shows a "Join" button.
 - ⏰ **Flexible formatting**:
     * Show the absolute time or relative time until (e.g. "in 2h 30m").
     * See room names and locations for in-person meetings
@@ -44,17 +43,6 @@ just install
 ```
 
 Then restart your COSMIC panel or log out and back in.
-
-## Configuration
-
-Click on the applet to open the popup, then click the ⚙️ Settings button to configure:
-
-- **Calendars** — Choose which calendars to display
-- **Filter events** — Show only accepted events, hide all-day events
-- **Display format** — Day/time or relative time
-- **Join button** — When to show the video call join button
-- **Physical location** — When to show room/location info
-- **Calendar indicator** — Show colored dots for calendar identification
 
 ## Requirements
 

@@ -97,23 +97,33 @@ release version: (tag version)
     @echo "Release v{{version}} created. Push with:"
     @echo "  git push origin main --tags"
 
-# Build Debian package
+# Install build dependencies for packaging
+install-build-deps:
+    #!/usr/bin/env bash
+    echo "Installing build dependencies..."
+    sudo apt-get update
+    sudo apt-get install -y debhelper devscripts flatpak-builder
+    flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    pip install aiohttp tomlkit
+
+# Build Debian package (requires: sudo apt install debhelper devscripts)
 build-deb:
     dpkg-buildpackage -us -uc -b
 
-# Generate Flatpak cargo sources and build
-flatpak-cargo-sources:
+# Regenerate Flatpak cargo sources (run after updating Cargo.lock)
+update-flatpak-sources:
     #!/usr/bin/env bash
-    if ! command -v flatpak-cargo-generator.py &> /dev/null; then
-        echo "Installing flatpak-cargo-generator..."
-        pip install aiohttp toml
-        curl -O https://raw.githubusercontent.com/nicokoch/flatpak-cargo-generator/master/flatpak-cargo-generator.py
+    if [ ! -f flatpak-cargo-generator.py ]; then
+        echo "Downloading flatpak-cargo-generator..."
+        pip install aiohttp tomlkit
+        curl -L -o flatpak-cargo-generator.py https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
         chmod +x flatpak-cargo-generator.py
     fi
     python3 flatpak-cargo-generator.py Cargo.lock -o cargo-sources.json
+    echo "cargo-sources.json updated. Don't forget to commit it!"
 
 # Build Flatpak (requires flatpak-builder)
-build-flatpak: flatpak-cargo-sources
+build-flatpak:
     flatpak-builder --force-clean --user --install-deps-from=flathub --repo=repo builddir {{appid}}.json
 
 # Install Flatpak locally for testing

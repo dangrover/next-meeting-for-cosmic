@@ -49,14 +49,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install flatpak-cargo-generator dependencies
-        run: pip install aiohttp toml
-
-      - name: Generate cargo sources
-        run: |
-          curl -O https://raw.githubusercontent.com/nicokoch/flatpak-cargo-generator/master/flatpak-cargo-generator.py
-          python3 flatpak-cargo-generator.py Cargo.lock -o cargo-sources.json
-
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
