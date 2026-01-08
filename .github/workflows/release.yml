@@ -30,11 +30,14 @@ jobs:
       - name: Build Debian package
         run: dpkg-buildpackage -us -uc -b
 
+      - name: Move .deb to workspace
+        run: mv ../*.deb .
+
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
           name: debian-package
-          path: ../*.deb
+          path: "*.deb"
 
   build-flatpak:
     name: Build Flatpak
