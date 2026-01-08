@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Debug utility to explore Evolution Data Server calendar data.
 // Run with: cargo run --bin debug_calendars

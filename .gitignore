@@ -5,10 +5,18 @@ debug/
 target/
 vendor/
 vendor.tar
+
+# Debian build artifacts
 debian/*
 !debian/changelog
 !debian/control
 !debian/copyright
-!debian/install
 !debian/rules
-!debian/source
+!debian/source/
+
+# Flatpak build artifacts
+builddir/
+repo/
+.flatpak-builder/
+cargo-sources.json
+flatpak-cargo-generator.py

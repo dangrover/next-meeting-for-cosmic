@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+export CARGO_HOME = $(CURDIR)/debian/cargo
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	just build-vendored
+
+override_dh_auto_install:
+	just rootdir=debian/cosmic-next-meeting prefix=/usr install
+
+override_dh_auto_clean:
+	just clean
+
+override_dh_auto_test:
+	# Skip tests during package build

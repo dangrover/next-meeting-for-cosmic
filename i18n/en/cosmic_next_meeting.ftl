@@ -14,6 +14,7 @@ display-format-relative = Relative time
 upcoming-events-section = Show additional meetings
 join = Join
 join-button-section = "Join" button
+join-button-description = When enabled, a "Join" button will appear for meetings with a detected video call URL.
 panel-join-button = In panel
 popup-join-button = In popup
 join-hide = Hide
@@ -25,6 +26,7 @@ join-show-5m = Show if within 5m
 url-patterns = URL Patterns
 add-pattern = Add pattern
 location-section = Physical location
+location-description = When enabled, the physical location of the meeting (e.g. a room name) will be shown if provided.
 panel-location = In panel
 popup-location = In popup
 location-hide = Hide
@@ -60,3 +62,14 @@ filter-summary-no-all-day = No all-day
 filter-summary-accepted = Accepted
 filter-summary-tentative = Accepted & tentative
 filter-summary-combo = { $allday }, { $status }
+additional-emails-section = My email addresses
+additional-emails-description = Add any email addresses you use for calendar invites (e.g. aliases, work email). These are used to determine your acceptance status for meetings, in addition to the email configured for each calendar.
+additional-emails-summary = { $count ->
+    [0] None configured
+    [one] { $count } email
+    *[other] { $count } emails
+}
+add-email = Add email
+filter-events-description = Filter which calendar events are shown based on event properties or your attendance status.
+about = About
+version = Version { $version }

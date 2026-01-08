@@ -7,7 +7,7 @@ prefix := env('HOME') + '/.local'
 # Installation paths
 base-dir := absolute_path(clean(rootdir / prefix))
 cargo-target-dir := env('CARGO_TARGET_DIR', 'target')
-appdata-dst := base-dir / 'share' / 'appdata' / appid + '.metainfo.xml'
+metainfo-dst := base-dir / 'share' / 'metainfo' / appid + '.metainfo.xml'
 bin-dst := base-dir / 'bin' / name
 desktop-dst := base-dir / 'share' / 'applications' / appid + '.desktop'
 icon-dst := base-dir / 'share' / 'icons' / 'hicolor' / 'scalable' / 'apps' / appid + '.svg'
@@ -53,19 +53,19 @@ dev: build-release install reload-applet
 
 # Reload applet by restarting panel
 reload-applet:
-    killall cosmic-panel && cosmic-panel &
+    killall cosmic-panel || true; cosmic-panel &
 
 # Installs files
 install:
     install -Dm0755 {{ cargo-target-dir / 'release' / name }} {{bin-dst}}
     install -Dm0644 resources/app.desktop {{desktop-dst}}
-    install -Dm0644 resources/app.metainfo.xml {{appdata-dst}}
+    install -Dm0644 resources/app.metainfo.xml {{metainfo-dst}}
     install -Dm0644 resources/icon.svg {{icon-dst}}
     install -Dm0644 resources/icon-symbolic.svg {{icon-symbolic-dst}}
 
 # Uninstalls installed files
 uninstall:
-    rm {{bin-dst}} {{desktop-dst}} {{appdata-dst}} {{icon-dst}} {{icon-symbolic-dst}}
+    rm {{bin-dst}} {{desktop-dst}} {{metainfo-dst}} {{icon-dst}} {{icon-symbolic-dst}}
 
 # Vendor dependencies locally
 vendor:
@@ -73,7 +73,8 @@ vendor:
     cargo vendor --sync Cargo.toml | head -n -1 > .cargo/config.toml
     echo 'directory = "vendor"' >> .cargo/config.toml
     echo >> .cargo/config.toml
-    rm -rf .cargo vendor
+    tar pcf vendor.tar vendor
+    rm -rf vendor
 
 # Extracts vendored dependencies
 vendor-extract:
@@ -83,9 +84,40 @@ vendor-extract:
 # Bump cargo version, create git commit, and create tag
 tag version:
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{version}}"/' '{}' \; -exec git add '{}' \;
+    sed -i 's/^cosmic-next-meeting ([^)]*)/cosmic-next-meeting ({{version}}-1)/' debian/changelog
+    git add debian/changelog
     cargo check
     cargo clean
     git add Cargo.lock
     git commit -m 'release: {{version}}'
-    git tag -a {{version}} -m ''
+    git tag -a v{{version}} -m 'Release {{version}}'
+
+# Create and push a release tag (triggers GitHub Actions release build)
+release version: (tag version)
+    @echo "Release v{{version}} created. Push with:"
+    @echo "  git push origin main --tags"
+
+# Build Debian package
+build-deb:
+    dpkg-buildpackage -us -uc -b
+
+# Generate Flatpak cargo sources and build
+flatpak-cargo-sources:
+    #!/usr/bin/env bash
+    if ! command -v flatpak-cargo-generator.py &> /dev/null; then
+        echo "Installing flatpak-cargo-generator..."
+        pip install aiohttp toml
+        curl -O https://raw.githubusercontent.com/nicokoch/flatpak-cargo-generator/master/flatpak-cargo-generator.py
+        chmod +x flatpak-cargo-generator.py
+    fi
+    python3 flatpak-cargo-generator.py Cargo.lock -o cargo-sources.json
+
+# Build Flatpak (requires flatpak-builder)
+build-flatpak: flatpak-cargo-sources
+    flatpak-builder --force-clean --user --install-deps-from=flathub --repo=repo builddir {{appid}}.json
+
+# Install Flatpak locally for testing
+install-flatpak: build-flatpak
+    flatpak --user remote-add --no-gpg-verify --if-not-exists local-repo repo
+    flatpak --user install -y local-repo {{appid}}
 

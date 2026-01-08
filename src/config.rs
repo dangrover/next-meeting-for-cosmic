@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: GPL-3.0-only
 
 use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, CosmicConfigEntry};
 use serde::{Deserialize, Serialize};
@@ -94,6 +94,9 @@ pub struct Config {
     pub show_all_day_events: bool,
     /// Filter events by attendance status.
     pub event_status_filter: EventStatusFilter,
+    /// Additional email addresses to identify the user in ATTENDEE fields.
+    /// Used in addition to the CalEmailAddress from each calendar.
+    pub additional_emails: Vec<String>,
 }
 
 impl Default for Config {
@@ -122,6 +125,7 @@ impl Default for Config {
             ],
             show_all_day_events: true,
             event_status_filter: EventStatusFilter::default(),
+            additional_emails: Vec::new(),
         }
     }
 }

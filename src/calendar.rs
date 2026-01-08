@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: GPL-3.0-only
 
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use zbus::{Connection, zvariant};
@@ -55,16 +55,17 @@ pub async fn get_available_calendars() -> Vec<CalendarInfo> {
 /// If enabled_uids is empty, all calendars are queried.
 /// Otherwise, only calendars with UIDs in the list are queried.
 /// Returns up to `limit` meetings (use limit=0 for just the next meeting info).
-pub async fn get_upcoming_meetings(enabled_uids: &[String], limit: usize) -> Vec<Meeting> {
+/// `additional_emails` are extra email addresses to identify the user in ATTENDEE fields.
+pub async fn get_upcoming_meetings(enabled_uids: &[String], limit: usize, additional_emails: &[String]) -> Vec<Meeting> {
     let conn = match Connection::session().await {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };
 
-    get_meetings_from_dbus(&conn, enabled_uids, limit.max(1)).await
+    get_meetings_from_dbus(&conn, enabled_uids, limit.max(1), additional_emails).await
 }
 
-async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limit: usize) -> Vec<Meeting> {
+async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limit: usize, additional_emails: &[String]) -> Vec<Meeting> {
     // Evolution Data Server workflow:
     // 1. Get calendar source UIDs from D-Bus SourceManager
     // 2. For each source, use CalendarFactory.OpenCalendar to get a calendar object
@@ -124,6 +125,26 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
             Err(_) => continue,
         };
 
+        // Get the CalEmailAddress property for this calendar
+        // This is used to identify the user in ATTENDEE fields
+        let cal_email: Option<String> = calendar_proxy
+            .get_property::<String>("CalEmailAddress")
+            .await
+            .ok();
+
+        // Combine CalEmailAddress with additional_emails for user identification
+        // Filter out empty strings from additional_emails
+        let mut user_emails: Vec<String> = additional_emails
+            .iter()
+            .filter(|e| !e.trim().is_empty())
+            .cloned()
+            .collect();
+        if let Some(email) = cal_email {
+            if !email.is_empty() && !user_emails.iter().any(|e| e.eq_ignore_ascii_case(&email)) {
+                user_emails.push(email);
+            }
+        }
+
         // GetObjectList takes a query string - empty string gets all events
         // We could use ECalQuery format for filtering, but empty works for now
         let ics_objects: Vec<String> = match calendar_proxy
@@ -178,7 +199,7 @@ async fn get_meetings_from_dbus(conn: &Connection, enabled_uids: &[String], limi
                         .and_then(|v| parse_ical_datetime(v, &now));
 
                     // Parse attendance status from ATTENDEE properties
-                    let attendance_status = parse_attendance_status(&event.properties);
+                    let attendance_status = parse_attendance_status(&event.properties, &user_emails);
 
                     if let Some(start) = start_dt {
                         // Use end time if available, otherwise assume 1 hour duration
@@ -384,39 +405,74 @@ fn parse_color(data: &str) -> Option<String> {
 }
 
 /// Parse attendance status from ATTENDEE properties
-/// Looks for an ATTENDEE that appears to be the current user and extracts PARTSTAT
-fn parse_attendance_status(properties: &[ical::property::Property]) -> AttendanceStatus {
+/// Matches the user's email addresses against ATTENDEE entries and extracts PARTSTAT
+fn parse_attendance_status(properties: &[ical::property::Property], user_emails: &[String]) -> AttendanceStatus {
+    // If no user emails provided, we can't determine attendance
+    if user_emails.is_empty() {
+        return AttendanceStatus::None;
+    }
+
+    // Normalize user emails to lowercase for comparison
+    let user_emails_lower: Vec<String> = user_emails.iter().map(|e| e.to_lowercase()).collect();
+
     // Find all ATTENDEE properties
     for prop in properties.iter().filter(|p| p.name == "ATTENDEE") {
-        // Check if this attendee might be the current user
-        // We look for common patterns in the parameters or value
         let params = prop.params.as_ref();
 
-        // Extract PARTSTAT from parameters
-        let partstat = params.and_then(|params| {
-            params.iter().find_map(|(name, values)| {
-                if name == "PARTSTAT" {
-                    values.first().map(|v| v.as_str())
-                } else {
-                    None
-                }
+        // Extract email from ATTENDEE - check EMAIL parameter first, then mailto: value
+        let attendee_email = params
+            .and_then(|params| {
+                params.iter().find_map(|(name, values)| {
+                    if name == "EMAIL" {
+                        values.first().map(|v| v.to_lowercase())
+                    } else {
+                        None
+                    }
+                })
             })
-        });
+            .or_else(|| {
+                // Fall back to extracting from mailto: in the value
+                prop.value.as_ref().and_then(|v| {
+                    let v_lower = v.to_lowercase();
+                    if v_lower.starts_with("mailto:") {
+                        Some(v_lower.trim_start_matches("mailto:").to_string())
+                    } else {
+                        None
+                    }
+                })
+            });
 
-        // For now, we'll use the first ATTENDEE with a PARTSTAT that isn't the organizer
-        // A more robust solution would match against the user's email addresses
-        if let Some(status) = partstat {
-            match status.to_uppercase().as_str() {
-                "ACCEPTED" => return AttendanceStatus::Accepted,
-                "TENTATIVE" => return AttendanceStatus::Tentative,
-                "DECLINED" => return AttendanceStatus::Declined,
-                "NEEDS-ACTION" => return AttendanceStatus::NeedsAction,
-                _ => {}
+        // Check if this attendee matches any of the user's emails
+        let is_user = attendee_email
+            .as_ref()
+            .map(|email| user_emails_lower.iter().any(|ue| ue == email))
+            .unwrap_or(false);
+
+        if is_user {
+            // Extract PARTSTAT from parameters
+            let partstat = params.and_then(|params| {
+                params.iter().find_map(|(name, values)| {
+                    if name == "PARTSTAT" {
+                        values.first().map(|v| v.as_str())
+                    } else {
+                        None
+                    }
+                })
+            });
+
+            if let Some(status) = partstat {
+                return match status.to_uppercase().as_str() {
+                    "ACCEPTED" => AttendanceStatus::Accepted,
+                    "TENTATIVE" => AttendanceStatus::Tentative,
+                    "DECLINED" => AttendanceStatus::Declined,
+                    "NEEDS-ACTION" => AttendanceStatus::NeedsAction,
+                    _ => AttendanceStatus::None,
+                };
             }
         }
     }
 
-    // No ATTENDEE found with PARTSTAT - this is likely a personal event or user is organizer
+    // No matching ATTENDEE found - this is likely a personal event or user is organizer
     AttendanceStatus::None
 }
 

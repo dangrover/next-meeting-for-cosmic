@@ -1,0 +1,24 @@
+Source: cosmic-next-meeting
+Section: x11
+Priority: optional
+Maintainer: Dan Grover <dan@dangrover.com>
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               rustc,
+               libssl-dev,
+               pkg-config,
+               just
+Standards-Version: 4.6.2
+Homepage: https://github.com/dangrover/cosmic-next-meeting
+Rules-Requires-Root: no
+
+Package: cosmic-next-meeting
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+         evolution-data-server
+Description: Next meeting panel applet for COSMIC desktop
+ A panel applet for the COSMIC desktop environment that displays
+ your next upcoming calendar event right in your panel.
+ .
+ Features include one-click join for video calls, calendar color
+ indicators, flexible time display, and smart filtering options.

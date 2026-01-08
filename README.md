@@ -1,43 +1,96 @@
-# Meeting
+# Next Meeting for COSMIC
 
-Show next meeting in cosmic panel or dock
+A beautiful panel applet for the [COSMIC desktop environment](https://system76.com/cosmic) that displays your next upcoming calendar event right in your panel, similar to Cron and Notion Calendar on Mac and gnome-next-meeting for GNOME. 
+
+![Next Meeting Screenshot](screenshot.png)
+
+## Features
+
+- 📅 **See your next meeting at a glance** — Shows the meeting title, time, and location right in your panel
+- 🔗 **One-click join** — Detects video call URLs (Google Meet, Zoom, Teams, Webex) and shows a "Join" button
+- 🎨 **Calendar color indicators** — Colored dots show which calendar each event is from
+- ⏰ **Flexible formatting**:
+    * Show the absolute time or relative time until (e.g. "in 2h 30m").
+    * See room names and locations for in-person meetings
+    * Indicate which calendar with colored dot
+- 🔍 **Smart filtering** — Filter by calendar, all-day events, or your acceptance status
+- 🌐 **Works with Evolution** — Works with all your Evolution Data Server calendars (GNOME Online Accounts, local calendars, etc.).
 
 ## Installation
 
-A [justfile](./justfile) is included by default for the [casey/just][just] command runner.
+### Flatpak (Recommended)
 
-- `just` builds the application with the default `just build-release` recipe
-- `just run` builds and runs the application
-- `just install` installs the project into the system
-- `just vendor` creates a vendored tarball
-- `just build-vendored` compiles with vendored dependencies from that tarball
-- `just check` runs clippy on the project to check for linter warnings
-- `just check-json` can be used by IDEs that support LSP
-
-## Translators
-
-[Fluent][fluent] is used for localization of the software. Fluent's translation files are found in the [i18n directory](./i18n). New translations may copy the [English (en) localization](./i18n/en) of the project, rename `en` to the desired [ISO 639-1 language code][iso-codes], and then translations can be provided for each [message identifier][fluent-guide]. If no translation is necessary, the message may be omitted.
-
-## Packaging
-
-If packaging for a Linux distribution, vendor dependencies locally with the `vendor` rule, and build with the vendored sources using the `build-vendored` rule. When installing files, use the `rootdir` and `prefix` variables to change installation paths.
-
-```sh
-just vendor
-just build-vendored
-just rootdir=debian/meeting prefix=/usr install
+```bash
+# Coming soon
+flatpak install flathub com.dangrover.next-meeting-app
 ```
 
-It is recommended to build a source tarball with the vendored dependencies, which can typically be done by running `just vendor` on the host system before it enters the build environment.
+### Debian/Ubuntu
 
-## Developers
+```bash
+# Coming soon
+sudo apt install cosmic-next-meeting
+```
 
-Developers should install [rustup][rustup] and configure their editor to use [rust-analyzer][rust-analyzer].
+### From Source
 
-[fluent]: https://projectfluent.org/
-[fluent-guide]: https://projectfluent.org/fluent/guide/hello.html
-[iso-codes]: https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes
-[just]: https://github.com/casey/just
-[rustup]: https://rustup.rs/
-[rust-analyzer]: https://rust-analyzer.github.io/
-[sccache]: https://github.com/mozilla/sccache
+Requires Rust and the [just](https://github.com/casey/just) command runner.
+
+```bash
+git clone https://github.com/pocketengineer/cosmic-next-meeting.git
+cd cosmic-next-meeting
+just build-release
+just install
+```
+
+Then restart your COSMIC panel or log out and back in.
+
+## Configuration
+
+Click on the applet to open the popup, then click the ⚙️ Settings button to configure:
+
+- **Calendars** — Choose which calendars to display
+- **Filter events** — Show only accepted events, hide all-day events
+- **Display format** — Day/time or relative time
+- **Join button** — When to show the video call join button
+- **Physical location** — When to show room/location info
+- **Calendar indicator** — Show colored dots for calendar identification
+
+## Requirements
+
+- COSMIC Desktop Environment
+- Evolution Data Server (for calendar access)
+- Calendars configured via GNOME Online Accounts or Evolution
+
+## Development
+
+### Building
+
+```bash
+just build-release    # Build release binary
+just run              # Build and run
+just dev              # Build, install, and reload panel
+just check            # Run clippy lints
+```
+
+### Packaging
+
+For distribution packaging, vendor dependencies and use the provided install targets:
+
+```bash
+just vendor
+just build-vendored
+just rootdir=debian/cosmic-next-meeting prefix=/usr install
+```
+
+### Translating
+
+Localization uses [Fluent](https://projectfluent.org/). Translation files are in the [i18n](./i18n) directory. To add a new language:
+
+1. Copy the `i18n/en` directory to your [ISO 639-1 language code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes)
+2. Translate the messages in the `.ftl` file
+3. Submit a pull request
+
+## License
+
+GPL-3.0-only

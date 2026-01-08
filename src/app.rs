@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MPL-2.0
+// SPDX-License-Identifier: GPL-3.0-only
 
 use crate::calendar::{CalendarInfo, Meeting};
 use crate::config::{Config, DisplayFormat, JoinButtonVisibility, LocationVisibility};
@@ -6,6 +6,7 @@ use crate::fl;
 use cosmic::cosmic_config::{self, ConfigGet, CosmicConfigEntry};
 use cosmic::cosmic_theme;
 use cosmic::iced::{window::Id, Length, Limits, Subscription};
+use cosmic::iced_core::id;
 use cosmic::iced_winit::commands::popup::{destroy_popup, get_popup};
 use cosmic::prelude::*;
 use cosmic::widget;
@@ -55,6 +56,11 @@ fn format_panel_time(dt: &chrono::DateTime<chrono::Local>, now: &chrono::DateTim
 /// Get theme spacing values
 fn spacing() -> cosmic_theme::Spacing {
     cosmic::theme::spacing()
+}
+
+/// Generate a unique ID for an email input field
+fn email_input_id(idx: usize) -> id::Id {
+    id::Id::new(format!("email_input_{}", idx))
 }
 
 /// Secondary text style for dimmed/muted text appearance
@@ -145,6 +151,8 @@ pub enum PopupPage {
     LocationSettings,
     CalendarIndicatorSettings,
     EventsToShowSettings,
+    EmailSettings,
+    About,
 }
 
 impl AppModel {
@@ -605,6 +613,28 @@ impl AppModel {
 
         content = content.push(details_settings);
 
+        // More vertical spacing before About section
+        content = content.push(widget::vertical_space().height(space.space_xs));
+
+        // About section
+        let about_section = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
+            .add(
+                widget::button::custom(
+                    widget::row::with_capacity(2)
+                        .push(widget::text::body(fl!("about")))
+                        .push(widget::horizontal_space())
+                        .push(widget::icon::from_name("go-next-symbolic").size(16))
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill)
+                )
+                .class(cosmic::theme::Button::MenuRoot)
+                .width(Length::Fill)
+                .on_press(Message::Navigate(PopupPage::About))
+            );
+
+        content = content.push(about_section);
+
         content.into()
     }
 
@@ -786,7 +816,7 @@ impl AppModel {
             patterns_list = patterns_list.add(
                 widget::row::with_capacity(2)
                     .push(
-                        widget::text_input("", pattern)
+                        widget::text_input("https://example.com/meeting/.*", pattern)
                             .on_input(move |s| Message::UpdatePattern(idx, s))
                             .width(Length::Fill)
                     )
@@ -808,6 +838,12 @@ impl AppModel {
             widget::button::standard(fl!("add-pattern"))
                 .on_press(Message::AddPattern)
         );
+
+        // Description at bottom with secondary color
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+        content = content.push(widget::vertical_space().height(space.space_s));
+        content = content.push(widget::text::caption(fl!("join-button-description")).class(secondary_text));
+        content = content.push(widget::vertical_space().height(space.space_m));
 
         content.into()
     }
@@ -900,6 +936,12 @@ impl AppModel {
 
         content = content.push(visibility_settings);
 
+        // Description at bottom with secondary color
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+        content = content.push(widget::vertical_space().height(space.space_s));
+        content = content.push(widget::text::caption(fl!("location-description")).class(secondary_text));
+        content = content.push(widget::vertical_space().height(space.space_m));
+
         content.into()
     }
 
@@ -959,9 +1001,10 @@ impl AppModel {
 
         content = content.push(indicator_settings);
 
-        // Description at bottom with smaller font
+        // Description at bottom with secondary color
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_s));
-        content = content.push(widget::text::caption(fl!("calendar-indicator-description")));
+        content = content.push(widget::text::caption(fl!("calendar-indicator-description")).class(secondary_text));
         content = content.push(widget::vertical_space().height(space.space_m));
 
         content.into()
@@ -972,7 +1015,7 @@ impl AppModel {
         use crate::config::EventStatusFilter;
 
         let space = spacing();
-        let mut content = widget::column::with_capacity(4)
+        let mut content = widget::column::with_capacity(6)
             .padding(space.space_xs)
             .spacing(space.space_xs);
 
@@ -1007,8 +1050,12 @@ impl AppModel {
             EventStatusFilter::AcceptedOrTentative => Some(2),
         };
 
+        // Email summary for navigation link
+        let email_count = self.config.additional_emails.len();
+        let email_summary = fl!("additional-emails-summary", count = email_count);
+
         // Filter settings group
-        let filter_settings = widget::list_column()
+        let mut filter_settings = widget::list_column()
             .list_item_padding([space.space_xxs, space.space_xs])
             // Show all-day events toggle
             .add(
@@ -1032,7 +1079,152 @@ impl AppModel {
                     .width(Length::Fill)
             );
 
+        // Show email settings link only when filtering by status
+        if self.config.event_status_filter != EventStatusFilter::All {
+            filter_settings = filter_settings.add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("additional-emails-section")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::button::custom(
+                            widget::row::with_capacity(2)
+                                .push(widget::text::body(email_summary))
+                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .spacing(space.space_xxs)
+                                .align_y(cosmic::iced::Alignment::Center)
+                        )
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::EmailSettings))
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+            );
+        }
+
         content = content.push(filter_settings);
+
+        // Description at bottom with secondary color
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+        content = content.push(widget::vertical_space().height(space.space_s));
+        content = content.push(widget::text::caption(fl!("filter-events-description")).class(secondary_text));
+        content = content.push(widget::vertical_space().height(space.space_m));
+
+        content.into()
+    }
+
+    /// Email settings page for additional email addresses
+    fn view_email_settings_page(&self) -> Element<'_, Message> {
+        let space = spacing();
+        let mut content = widget::column::with_capacity(6 + self.config.additional_emails.len())
+            .padding(space.space_xs)
+            .spacing(space.space_xs);
+
+        // Back button header
+        content = content.push(
+            widget::column::with_capacity(2)
+                .push(
+                    widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                        .extra_small()
+                        .padding(space.space_none)
+                        .label(fl!("filter-events-section"))
+                        .spacing(space.space_xxxs)
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::EventsToShowSettings))
+                )
+                .push(widget::text::title4(fl!("additional-emails-section")))
+                .spacing(space.space_xxxs)
+        );
+
+        // Extra space after header
+        content = content.push(widget::vertical_space().height(space.space_xxxs));
+
+        // Email list as a grouped list
+        let mut emails_list = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs]);
+
+        for (idx, email) in self.config.additional_emails.iter().enumerate() {
+            emails_list = emails_list.add(
+                widget::row::with_capacity(2)
+                    .push(
+                        widget::text_input("email@example.com", email)
+                            .on_input(move |s| Message::UpdateEmail(idx, s))
+                            .width(Length::Fill)
+                            .id(email_input_id(idx))
+                    )
+                    .push(
+                        widget::button::icon(widget::icon::from_name("edit-delete-symbolic"))
+                            .extra_small()
+                            .on_press(Message::RemoveEmail(idx))
+                    )
+                    .spacing(space.space_xs)
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill)
+            );
+        }
+
+        content = content.push(emails_list);
+
+        // Add email button
+        content = content.push(
+            widget::button::standard(fl!("add-email"))
+                .on_press(Message::AddEmail)
+        );
+
+        // Description at bottom with secondary color
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+        content = content.push(widget::vertical_space().height(space.space_s));
+        content = content.push(widget::text::caption(fl!("additional-emails-description")).class(secondary_text));
+        content = content.push(widget::vertical_space().height(space.space_m));
+
+        content.into()
+    }
+
+    /// About page with app info
+    fn view_about_page(&self) -> Element<'_, Message> {
+        let space = spacing();
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+
+        let mut content = widget::column::with_capacity(6)
+            .padding(space.space_xs)
+            .spacing(space.space_xs)
+            .align_x(cosmic::iced::Alignment::Center);
+
+        // Back button header (left-aligned)
+        content = content.push(
+            widget::column::with_capacity(1)
+                .push(
+                    widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                        .extra_small()
+                        .padding(space.space_none)
+                        .label(fl!("settings"))
+                        .spacing(space.space_xxxs)
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::Settings))
+                )
+                .width(Length::Fill)
+        );
+
+        // Vertical space before icon
+        content = content.push(widget::vertical_space().height(space.space_m));
+
+        // App icon (centered, large)
+        content = content.push(
+            widget::icon::from_name("com.dangrover.next-meeting-app")
+                .size(64)
+        );
+
+        // App name
+        content = content.push(widget::text::title3(fl!("app-title")));
+
+        // Version
+        let version = env!("CARGO_PKG_VERSION");
+        content = content.push(
+            widget::text::body(fl!("version", version = version))
+                .class(secondary_text)
+        );
+
+        // Vertical space at bottom
+        content = content.push(widget::vertical_space().height(space.space_l));
 
         content.into()
     }
@@ -1234,6 +1426,9 @@ pub enum Message {
     RemovePattern(usize),
     SetShowAllDayEvents(bool),
     SetEventStatusFilter(usize),
+    UpdateEmail(usize, String),
+    AddEmail,
+    RemoveEmail(usize),
 }
 
 /// Create a COSMIC application from the app model
@@ -1272,6 +1467,7 @@ impl cosmic::Application for AppModel {
 
         let enabled_uids = config.enabled_calendar_uids.clone();
         let upcoming_count = config.upcoming_events_count as usize;
+        let additional_emails = config.additional_emails.clone();
 
         // Construct the app model with the runtime's core.
         let app = AppModel {
@@ -1288,7 +1484,7 @@ impl cosmic::Application for AppModel {
         );
 
         let meetings_task = Task::perform(
-            async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await },
+            async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1, &additional_emails).await },
             |meetings| Message::MeetingsUpdated(meetings).into(),
         );
 
@@ -1451,6 +1647,8 @@ impl cosmic::Application for AppModel {
             PopupPage::LocationSettings => self.view_location_settings_page(),
             PopupPage::CalendarIndicatorSettings => self.view_calendar_indicator_settings_page(),
             PopupPage::EventsToShowSettings => self.view_events_to_show_settings_page(),
+            PopupPage::EmailSettings => self.view_email_settings_page(),
+            PopupPage::About => self.view_about_page(),
         };
 
         self.core.applet.popup_container(content).into()
@@ -1467,6 +1665,7 @@ impl cosmic::Application for AppModel {
 
         let enabled_uids = self.config.enabled_calendar_uids.clone();
         let upcoming_count = self.config.upcoming_events_count as usize;
+        let additional_emails = self.config.additional_emails.clone();
 
         Subscription::batch(vec![
             // Periodically refresh calendar and meeting data
@@ -1479,7 +1678,7 @@ impl cosmic::Application for AppModel {
                         // Refresh both calendars and meetings
                         let calendars = crate::calendar::get_available_calendars().await;
                         let _ = channel.send(Message::CalendarsLoaded(calendars)).await;
-                        let meetings = crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await;
+                        let meetings = crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1, &additional_emails).await;
                         let _ = channel.send(Message::MeetingsUpdated(meetings)).await;
                     }
                 }),
@@ -1532,8 +1731,9 @@ impl cosmic::Application for AppModel {
                 // Refresh meetings with new filter
                 let enabled_uids = self.config.enabled_calendar_uids.clone();
                 let upcoming_count = self.config.upcoming_events_count as usize;
+                let additional_emails = self.config.additional_emails.clone();
                 return Task::perform(
-                    async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await },
+                    async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1, &additional_emails).await },
                     |meetings| Message::MeetingsUpdated(meetings).into(),
                 );
             }
@@ -1555,8 +1755,9 @@ impl cosmic::Application for AppModel {
                 // Refresh meetings with new count
                 let enabled_uids = self.config.enabled_calendar_uids.clone();
                 let upcoming_count = self.config.upcoming_events_count as usize;
+                let additional_emails = self.config.additional_emails.clone();
                 return Task::perform(
-                    async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1).await },
+                    async move { crate::calendar::get_upcoming_meetings(&enabled_uids, upcoming_count + 1, &additional_emails).await },
                     |meetings| Message::MeetingsUpdated(meetings).into(),
                 );
             }
@@ -1691,6 +1892,31 @@ impl cosmic::Application for AppModel {
                     2 => EventStatusFilter::AcceptedOrTentative,
                     _ => EventStatusFilter::All,
                 };
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::UpdateEmail(idx, email) => {
+                if let Some(e) = self.config.additional_emails.get_mut(idx) {
+                    *e = email;
+                }
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::AddEmail => {
+                let new_idx = self.config.additional_emails.len();
+                self.config.additional_emails.push(String::new());
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+                // Focus the new email input field
+                return cosmic::widget::text_input::focus(email_input_id(new_idx));
+            }
+            Message::RemoveEmail(idx) => {
+                if idx < self.config.additional_emails.len() {
+                    self.config.additional_emails.remove(idx);
+                }
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }
