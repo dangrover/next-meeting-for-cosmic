@@ -1209,6 +1209,13 @@ impl AppModel {
                 .class(secondary_text)
         );
 
+        // Author
+        let author = env!("CARGO_PKG_AUTHORS");
+        content = content.push(
+            widget::text::body(fl!("author", author = author))
+                .class(secondary_text)
+        );
+
         // Vertical space at bottom
         content = content.push(widget::vertical_space().height(space.space_l));
 

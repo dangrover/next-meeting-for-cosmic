@@ -2,9 +2,10 @@
 name = "cosmic-next-meeting"
 version = "0.9.0"
 edition = "2024"
+authors = ["Dan Grover"]
 license = "GPL-3.0-only"
 description = "Show next meeting in cosmic panel or dock"
-repository = "https://github.com/pop-os/cosmic-app-template"
+repository = "https://github.com/dangrover/cosmic-next-meeting"
 
 [[bin]]
 name = "cosmic-next-meeting"

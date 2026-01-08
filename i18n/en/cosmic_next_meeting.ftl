@@ -74,5 +74,6 @@ add-email = Add email
 filter-events-description = Filter which calendar events are shown based on event properties or your attendance status.
 about = About
 version = Version { $version }
+author = by { $author }
 no-calendars = No calendars
 no-calendars-description = Configure a calendar account using GNOME Online Accounts or a calendar app like Evolution.
