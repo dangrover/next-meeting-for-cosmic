@@ -50,10 +50,12 @@ After installing, you should be able to enable it in Settings > Desktop > Panel 
 
 ### Setting Up Calendars
 
-* COSMIC DE doesn't have any native calendar app or way to set up online calendars (though one is [apparently in progress](https://github.com/cosmic-utils/calendar)), so you'll need to use Evolution or GNOME Online Accounts to do this.
-* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). So if you use GNOME Calendar app or Evolution or the GNOME Online Accounts system, you're all set. You may not have these apps if you are using Pop!_OS, but they're easy to set up with your calendars.
-* Other, non-EDS calendars (like Thunderbird) won't work as a data source. But you can set up the same calendars in EDS and still open other calendar apps from the applet. The applet will honor whatever calendar app is configured as the system calendar app.
-* The applet reads from cached events. If EDS syncs your online calendars, it will see the updates. You can optionally enable a setting to automatically tell EDS to fetch from online calendars.
+* COSMIC DE doesn't have any native calendar app or way to set up online calendars (though one is [apparently in progress](https://github.com/cosmic-utils/calendar)). You can do this through Evolution or the Online Accounts setting in GNOME. 
+    * If you're using PopOS, Evolution will probably be easier than using Online Accounts to set up calendars. 
+* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). 
+    * Other, non-EDS calendars (like Thunderbird) won't work as a data source. But you can set up the same calendars in EDS and still open other calendar apps from the applet. The applet will honor whatever calendar app is configured as the system calendar app. 
+    * The applet reads from cached events. If EDS syncs your online calendars, it will see the updates. You can optionally enable a setting to automatically tell EDS to fetch stuff from online calendars.
+
 
 ## Development
 
