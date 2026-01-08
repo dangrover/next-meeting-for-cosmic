@@ -127,10 +127,25 @@ impl AppModel {
     /// Main popup page showing meeting info and settings nav
     fn view_main_page(&self) -> Element<'_, Message> {
         let space = spacing();
+        let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
 
         let mut content = widget::column::with_capacity(8)
             .padding([space.space_xxs, space.space_none])
             .width(Length::Fill);
+
+        // Show notice if in vertical panel
+        if !self.core.applet.is_horizontal() {
+            content = content.push(
+                cosmic::applet::padded_control(
+                    widget::text::body(fl!("vertical-panel-notice")).class(secondary_text),
+                )
+                .padding([space.space_xxs, space.space_s]),
+            );
+            content = content.push(
+                cosmic::applet::padded_control(widget::divider::horizontal::default())
+                    .padding([space.space_xxs, space.space_s]),
+            );
+        }
 
         let filtered = self.filtered_meetings();
         if let Some(meeting) = filtered.first() {
@@ -1557,6 +1572,16 @@ impl cosmic::Application for AppModel {
     fn view(&self) -> Element<'_, Self::Message> {
         use chrono::Local;
         let space = spacing();
+
+        // In vertical panels, just show an icon since text won't fit well
+        if !self.core.applet.is_horizontal() {
+            let icon = widget::icon::from_name("office-calendar-symbolic").size(space.space_m);
+            let button = widget::button::custom(icon)
+                .class(cosmic::theme::Button::AppletIcon)
+                .on_press(Message::TogglePopup);
+            return self.core.applet.autosize_window(button).into();
+        }
+
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
 
         // Build panel content based on whether we have meetings
