@@ -10,36 +10,73 @@ env:
 
 jobs:
   build-deb:
-    name: Build Debian Package (${{ matrix.arch }})
+    name: Build Debian Package
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Vendor dependencies
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cargo
-          mkdir -p .cargo
-          cargo vendor --sync Cargo.toml | head -n -1 > .cargo/config.toml
-          echo 'directory = "vendor"' >> .cargo/config.toml
-          echo >> .cargo/config.toml
-          tar pcf vendor.tar vendor
-          rm -rf vendor
+          sudo apt-get install -y dpkg-dev libssl-dev pkg-config
 
-      - name: Build Debian package
-        uses: andy5995/gh-action-build-deb@v1
-        with:
-          platform: ${{ matrix.arch }}
-          codename: bookworm
-          args: --no-sign
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create .deb package
+        run: |
+          PKG_NAME="cosmic-next-meeting"
+          PKG_VERSION="${{ steps.version.outputs.VERSION }}"
+          PKG_DIR="${PKG_NAME}_${PKG_VERSION}_amd64"
+
+          mkdir -p "${PKG_DIR}/DEBIAN"
+          mkdir -p "${PKG_DIR}/usr/bin"
+          mkdir -p "${PKG_DIR}/usr/share/applications"
+          mkdir -p "${PKG_DIR}/usr/share/metainfo"
+          mkdir -p "${PKG_DIR}/usr/share/icons/hicolor/scalable/apps"
+          mkdir -p "${PKG_DIR}/usr/share/icons/hicolor/symbolic/apps"
+
+          # Copy files
+          cp target/release/cosmic-next-meeting "${PKG_DIR}/usr/bin/"
+          cp resources/app.desktop "${PKG_DIR}/usr/share/applications/com.dangrover.next-meeting-app.desktop"
+          cp resources/app.metainfo.xml "${PKG_DIR}/usr/share/metainfo/com.dangrover.next-meeting-app.metainfo.xml"
+          cp resources/icon.svg "${PKG_DIR}/usr/share/icons/hicolor/scalable/apps/com.dangrover.next-meeting-app.svg"
+          cp resources/icon-symbolic.svg "${PKG_DIR}/usr/share/icons/hicolor/symbolic/apps/com.dangrover.next-meeting-app-symbolic.svg"
+
+          # Create control file
+          cat > "${PKG_DIR}/DEBIAN/control" << EOF
+          Package: cosmic-next-meeting
+          Version: ${PKG_VERSION}
+          Section: x11
+          Priority: optional
+          Architecture: amd64
+          Depends: evolution-data-server
+          Maintainer: Dan Grover <dan@dangrover.com>
+          Description: Next meeting panel applet for COSMIC desktop
+           A panel applet for the COSMIC desktop environment that displays
+           your next upcoming calendar event right in your panel.
+           .
+           Features include one-click join for video calls, calendar color
+           indicators, flexible time display, and smart filtering options.
+          EOF
+
+          # Build the package
+          dpkg-deb --build "${PKG_DIR}"
+
+          mkdir -p output
+          mv "${PKG_DIR}.deb" output/
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debian-package-${{ matrix.arch }}
+          name: debian-package-amd64
           path: output/*.deb
 
   build-flatpak:
