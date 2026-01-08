@@ -381,20 +381,22 @@ impl AppModel {
             fl!("refresh-summary-off")
         };
 
-        // Calendars count for summary (only count meeting sources, not contacts/weather/birthdays)
-        let meeting_calendars: Vec<_> = self
-            .available_calendars
-            .iter()
-            .filter(|c| c.is_meeting_source())
-            .collect();
-        let total = meeting_calendars.len();
+        // Calendars count for summary
+        // Total = all calendars, Enabled = meeting sources that are enabled
+        let total = self.available_calendars.len();
         let calendar_summary = if total == 0 {
             fl!("calendars-none")
         } else {
+            let meeting_calendars: Vec<_> = self
+                .available_calendars
+                .iter()
+                .filter(|c| c.is_meeting_source())
+                .collect();
             let enabled = if self.config.enabled_calendar_uids.is_empty() {
-                total
+                // All meeting sources enabled by default
+                meeting_calendars.len()
             } else {
-                // Count only UIDs that are in enabled list and exist in meeting calendars
+                // Count only UIDs that are in enabled list and are meeting sources
                 self.config
                     .enabled_calendar_uids
                     .iter()
