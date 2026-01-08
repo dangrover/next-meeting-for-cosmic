@@ -43,29 +43,21 @@ jobs:
           path: output/*.deb
 
   build-flatpak:
-    name: Build Flatpak (${{ matrix.arch }})
+    name: Build Flatpak
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        arch: [x86_64, aarch64]
     container:
       image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
       options: --privileged
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install QEMU for cross-compilation
-        if: matrix.arch == 'aarch64'
-        run: |
-          dnf install -y qemu-user-static
-
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: cosmic-next-meeting-${{ matrix.arch }}.flatpak
+          bundle: cosmic-next-meeting-x86_64.flatpak
           manifest-path: com.dangrover.next-meeting-app.json
-          arch: ${{ matrix.arch }}
-          cache-key: flatpak-builder-${{ matrix.arch }}-${{ github.sha }}
+          arch: x86_64
+          cache-key: flatpak-builder-x86_64-${{ github.sha }}
 
   release:
     name: Create Release
