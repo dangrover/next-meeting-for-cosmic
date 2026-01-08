@@ -95,6 +95,42 @@ jobs:
           manifest-path: com.dangrover.next-meeting-app.json
           arch: x86_64
           cache-key: flatpak-builder-x86_64-${{ github.sha }}
+          repository-name: repo
+
+      - name: Upload Flatpak repo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-repo
+          path: repo/
+
+  deploy-flatpak-repo:
+    name: Deploy Flatpak Repo
+    needs: [build-flatpak]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download Flatpak repo
+        uses: actions/download-artifact@v4
+        with:
+          name: flatpak-repo
+          path: repo/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: repo/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
   release:
     name: Create Release
@@ -109,7 +145,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
+          pattern: 'debian-package-*'
           merge-multiple: true
+
+      - name: Download Flatpak bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: flatpak-repo
+          path: flatpak-artifacts/
+
+      - name: Find Flatpak bundle
+        run: |
+          mkdir -p artifacts
+          find . -name "*.flatpak" -exec cp {} artifacts/ \;
 
       - name: List artifacts
         run: find artifacts/ -type f
@@ -128,3 +176,4 @@ jobs:
           files: |
             artifacts/**/*.deb
             artifacts/**/*.flatpak
+            *.flatpak

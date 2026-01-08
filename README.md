@@ -21,30 +21,37 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 
 ## Installation
 
-Download the latest release from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases).
-
-### Setting up your calendars
-*  COSMIC DE doesn't have any native calendar app or way to set up online calendars (though one is [apparently in progress](https://github.com/cosmic-utils/calendar)), so you'll need to use Evolution or gnome-online-accounts to do this. 
-* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). The GNOME Calendar app and Evolution both qualify here. 
-Thunderbird won't work; you can set up the same calendars in EDS and still have them open in Thunderbird when you click them in the applet, though. The applet will honor whatever calendar app is configured as the system calendar app. 
-
 ### Flatpak (Recommended)
 
-Download the `.flatpak` file, then install it:
+**Option A: Add the Flatpak repo (recommended for automatic updates)**
 
 ```bash
-flatpak install --user cosmic-next-meeting.flatpak
+flatpak remote-add --if-not-exists --user next-meeting https://dangrover.github.io/next-meeting-for-cosmic
+flatpak install --user next-meeting com.dangrover.next-meeting-app
+```
+
+**Option B: Download and install directly**
+
+Download the `.flatpak` file from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases), then install it:
+
+```bash
+flatpak install --user cosmic-next-meeting-x86_64.flatpak
 ```
 
 ### Debian/Ubuntu/Pop!_OS
 
-Download the `.deb` file, then install it:
+Download the `.deb` file from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases), then install it:
 
 ```bash
 sudo apt install ./cosmic-next-meeting_*.deb
 ```
 
 After installing, restart your COSMIC panel or log out and back in.
+
+### Setting up your calendars
+
+* COSMIC DE doesn't have any native calendar app or way to set up online calendars (though one is [apparently in progress](https://github.com/cosmic-utils/calendar)), so you'll need to use Evolution or gnome-online-accounts to do this.
+* This app is agnostic to what calendar app you use, but it gets its data from EDS (Evolution Data Server). The GNOME Calendar app and Evolution both qualify here. Thunderbird won't work; you can set up the same calendars in EDS and still have them open in Thunderbird when you click them in the applet, though. The applet will honor whatever calendar app is configured as the system calendar app.
 
 ## Requirements
 
