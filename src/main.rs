@@ -3,6 +3,7 @@
 mod app;
 mod calendar;
 mod config;
+mod formatting;
 mod i18n;
 
 fn main() -> cosmic::iced::Result {

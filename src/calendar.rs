@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use regex::Regex;
 use zbus::{Connection, zvariant};
 use ical::parser::ical::IcalParser;
 
@@ -43,6 +44,11 @@ pub struct CalendarInfo {
 
 /// Fetch available calendars from Evolution Data Server via D-Bus
 pub async fn get_available_calendars() -> Vec<CalendarInfo> {
+    // Debug: simulate no calendars for testing
+    if std::env::var("DEBUG_NO_CALENDARS").is_ok() {
+        return Vec::new();
+    }
+
     let conn = match Connection::session().await {
         Ok(c) => c,
         Err(_) => return Vec::new(),
@@ -57,6 +63,11 @@ pub async fn get_available_calendars() -> Vec<CalendarInfo> {
 /// Returns up to `limit` meetings (use limit=0 for just the next meeting info).
 /// `additional_emails` are extra email addresses to identify the user in ATTENDEE fields.
 pub async fn get_upcoming_meetings(enabled_uids: &[String], limit: usize, additional_emails: &[String]) -> Vec<Meeting> {
+    // Debug: simulate no calendars for testing
+    if std::env::var("DEBUG_NO_CALENDARS").is_ok() {
+        return Vec::new();
+    }
+
     let conn = match Connection::session().await {
         Ok(c) => c,
         Err(_) => return Vec::new(),
@@ -524,4 +535,72 @@ fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<Dat
     }
 
     None
+}
+
+/// Extract a meeting URL from the meeting's location or description fields
+/// Checks location first (most common place for meeting links), then description
+pub fn extract_meeting_url(meeting: &Meeting, patterns: &[String]) -> Option<String> {
+    // Compile patterns, skipping any invalid ones
+    let compiled: Vec<Regex> = patterns
+        .iter()
+        .filter_map(|p| Regex::new(p).ok())
+        .collect();
+
+    if compiled.is_empty() {
+        return None;
+    }
+
+    // Check location first
+    if let Some(ref location) = meeting.location {
+        for regex in &compiled {
+            if let Some(m) = regex.find(location) {
+                return Some(m.as_str().to_string());
+            }
+        }
+    }
+
+    // Then check description
+    if let Some(ref description) = meeting.description {
+        for regex in &compiled {
+            if let Some(m) = regex.find(description) {
+                return Some(m.as_str().to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Get the physical location from a meeting (location that is not a URL)
+/// Returns None if the location is empty or appears to be just a URL
+pub fn get_physical_location(meeting: &Meeting, url_patterns: &[String]) -> Option<String> {
+    let location = meeting.location.as_ref()?;
+    let location = location.trim();
+
+    if location.is_empty() {
+        return None;
+    }
+
+    // Compile patterns to check if location is a URL
+    let compiled: Vec<Regex> = url_patterns
+        .iter()
+        .filter_map(|p| Regex::new(p).ok())
+        .collect();
+
+    // If location matches any URL pattern entirely, it's not a physical location
+    for regex in &compiled {
+        if let Some(m) = regex.find(location) {
+            // If the match covers the entire location, skip it
+            if m.start() == 0 && m.end() == location.len() {
+                return None;
+            }
+        }
+    }
+
+    // Also skip if it looks like a generic URL
+    if location.starts_with("http://") || location.starts_with("https://") {
+        return None;
+    }
+
+    Some(location.to_string())
 }

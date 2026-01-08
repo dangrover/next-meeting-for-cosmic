@@ -75,3 +75,7 @@ The main popup follows the same pattern as other COSMIC applets (e.g., Power app
 - Dividers: `cosmic::applet::padded_control(widget::divider::horizontal::default()).padding([space_xxs, space_s])`
 
 Settings pages use `widget::list_column()` for grouped items with dividers.
+
+## Workflow
+
+- **Atomic commits**: Suggest making commits between unrelated changes to keep history clean. Don't let unrelated work pile up in a single commit.

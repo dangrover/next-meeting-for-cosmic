@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use crate::calendar::{CalendarInfo, Meeting};
+use crate::calendar::{CalendarInfo, Meeting, extract_meeting_url, get_physical_location};
 use crate::config::{Config, DisplayFormat, JoinButtonVisibility, LocationVisibility};
 use crate::fl;
-use cosmic::cosmic_config::{self, ConfigGet, CosmicConfigEntry};
+use crate::formatting::{format_panel_time, format_relative_time, format_time, parse_hex_color};
+use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::cosmic_theme;
 use cosmic::iced::{window::Id, Length, Limits, Subscription};
 use cosmic::iced_core::id;
@@ -18,39 +19,6 @@ fn display_format_options() -> Vec<String> {
         fl!("display-format-day-time"),
         fl!("display-format-relative"),
     ]
-}
-
-
-/// Check if user prefers 24-hour (military) time from COSMIC settings
-fn use_military_time() -> bool {
-    cosmic::cosmic_config::Config::new("com.system76.CosmicAppletTime", 1)
-        .ok()
-        .and_then(|config| config.get::<bool>("military_time").ok())
-        .unwrap_or(false)
-}
-
-/// Format a time according to user's COSMIC time preference
-fn format_time(dt: &chrono::DateTime<chrono::Local>, include_day: bool) -> String {
-    let time_fmt = if use_military_time() { "%H:%M" } else { "%I:%M %p" };
-    if include_day {
-        dt.format(&format!("%A, %B %d at {}", time_fmt)).to_string()
-    } else {
-        dt.format(&format!("%a {}", time_fmt)).to_string()
-    }
-}
-
-/// Smart panel time formatting: just time if today, day+time if different day
-fn format_panel_time(dt: &chrono::DateTime<chrono::Local>, now: &chrono::DateTime<chrono::Local>) -> String {
-    let time_fmt = if use_military_time() { "%H:%M" } else { "%l:%M%P" }; // %l = hour 1-12 no padding, %P = lowercase am/pm
-    let is_same_day = dt.date_naive() == now.date_naive();
-
-    if is_same_day {
-        // Just show time: "2:30pm" or "14:30"
-        dt.format(time_fmt).to_string().trim().to_string()
-    } else {
-        // Show day and time: "Fri 2:30pm" or "Fri 14:30"
-        dt.format(&format!("%a {}", time_fmt)).to_string().trim().to_string()
-    }
 }
 
 /// Get theme spacing values
@@ -187,9 +155,9 @@ impl AppModel {
     fn view_main_page(&self) -> Element<'_, Message> {
         let space = spacing();
 
-        // Match Power applet pattern: column with [8, 0] padding (vertical only)
         let mut content = widget::column::with_capacity(8)
-            .padding([8, 0]);
+            .padding([space.space_xxs, space.space_none])
+            .width(Length::Fill);
 
         let filtered = self.filtered_meetings();
         if let Some(meeting) = filtered.first() {
@@ -291,7 +259,7 @@ impl AppModel {
             // Upcoming events section
             let upcoming_count = self.config.upcoming_events_count as usize;
             if upcoming_count > 0 && filtered.len() > 1 {
-                // Divider before "Upcoming" section (matching Power applet pattern)
+                // Divider before "Upcoming" section
                 content = content.push(
                     cosmic::applet::padded_control(widget::divider::horizontal::default())
                         .padding([space.space_xxs, space.space_s])
@@ -335,13 +303,31 @@ impl AppModel {
                     );
                 }
             }
+        } else if self.available_calendars.is_empty() {
+            // No calendars configured - show prominent centered message
+            let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+
+            let no_cal_content = widget::column::with_capacity(3)
+                .spacing(space.space_xxs)
+                .align_x(cosmic::iced::Alignment::Center)
+                .push(widget::icon::from_name("dialog-warning-symbolic").size(space.space_l))
+                .push(widget::text::title4(fl!("no-calendars")))
+                .push(widget::text::body(fl!("no-calendars-description")).class(secondary_text));
+
+            content = content.push(
+                widget::container(no_cal_content)
+                    .padding([space.space_s, space.space_s])
+                    .width(Length::Fill)
+                    .align_x(cosmic::iced::alignment::Horizontal::Center)
+            );
         } else {
+            // Calendars exist but no upcoming meetings
             content = content.push(
                 cosmic::applet::padded_control(widget::text::body(fl!("no-meetings")))
             );
         }
 
-        // Divider before bottom actions (matching Power applet pattern)
+        // Divider before bottom actions
         content = content.push(
             cosmic::applet::padded_control(widget::divider::horizontal::default())
                 .padding([space.space_xxs, space.space_s])
@@ -351,7 +337,7 @@ impl AppModel {
         content = content.push(
             cosmic::applet::menu_button(
                 widget::row::with_capacity(3)
-                    .push(widget::icon::from_name("office-calendar-symbolic").size(16))
+                    .push(widget::icon::from_name("office-calendar-symbolic").size(space.space_m))
                     .push(widget::text::body(fl!("open-calendar")))
                     .push(widget::horizontal_space())
                     .spacing(space.space_xs)
@@ -364,7 +350,7 @@ impl AppModel {
         content = content.push(
             cosmic::applet::menu_button(
                 widget::row::with_capacity(3)
-                    .push(widget::icon::from_name("preferences-system-symbolic").size(16))
+                    .push(widget::icon::from_name("preferences-system-symbolic").size(space.space_m))
                     .push(widget::text::body(fl!("settings")))
                     .push(widget::horizontal_space())
                     .spacing(space.space_xs)
@@ -382,7 +368,8 @@ impl AppModel {
         let space = spacing();
         let mut content = widget::column::with_capacity(2)
             .padding(space.space_xs)
-            .spacing(space.space_xs);
+            .spacing(space.space_xs)
+            .width(Length::Fill);
 
         // Back button header
         content = content.push(
@@ -397,23 +384,24 @@ impl AppModel {
                         .on_press(Message::Navigate(PopupPage::Main))
                 )
                 .push(widget::text::title4(fl!("settings")))
-                .spacing(space.space_xxxs)
+                .spacing(space.space_xxs)
         );
-
-        // Extra space after header
-        content = content.push(widget::vertical_space().height(space.space_xxxs));
 
         // Calendars count for summary
         let total = self.available_calendars.len();
-        let enabled = if self.config.enabled_calendar_uids.is_empty() {
-            total
+        let calendar_summary = if total == 0 {
+            fl!("calendars-none")
         } else {
-            // Count only UIDs that still exist in available calendars (filter stale UIDs)
-            self.config.enabled_calendar_uids.iter()
-                .filter(|uid| self.available_calendars.iter().any(|c| &c.uid == *uid))
-                .count()
+            let enabled = if self.config.enabled_calendar_uids.is_empty() {
+                total
+            } else {
+                // Count only UIDs that still exist in available calendars (filter stale UIDs)
+                self.config.enabled_calendar_uids.iter()
+                    .filter(|uid| self.available_calendars.iter().any(|c| &c.uid == *uid))
+                    .count()
+            };
+            fl!("calendars-enabled", enabled = enabled, total = total)
         };
-        let calendar_summary = fl!("calendars-enabled", enabled = enabled, total = total);
 
         // Display format dropdown index
         let format_idx = match self.config.display_format {
@@ -481,7 +469,7 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(calendar_summary))
-                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
                                 .spacing(space.space_xxs)
                                 .align_y(cosmic::iced::Alignment::Center)
                         )
@@ -500,7 +488,7 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(filter_summary))
-                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
                                 .spacing(space.space_xxs)
                                 .align_y(cosmic::iced::Alignment::Center)
                         )
@@ -562,7 +550,7 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(join_status))
-                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
                                 .spacing(space.space_xxs)
                                 .align_y(cosmic::iced::Alignment::Center)
                         )
@@ -581,7 +569,7 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(location_status))
-                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
                                 .spacing(space.space_xxs)
                                 .align_y(cosmic::iced::Alignment::Center)
                         )
@@ -600,7 +588,7 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(indicator_status))
-                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
                                 .spacing(space.space_xxs)
                                 .align_y(cosmic::iced::Alignment::Center)
                         )
@@ -624,7 +612,7 @@ impl AppModel {
                     widget::row::with_capacity(2)
                         .push(widget::text::body(fl!("about")))
                         .push(widget::horizontal_space())
-                        .push(widget::icon::from_name("go-next-symbolic").size(16))
+                        .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
                         .align_y(cosmic::iced::Alignment::Center)
                         .width(Length::Fill)
                 )
@@ -643,7 +631,8 @@ impl AppModel {
         let space = spacing();
         let mut content = widget::column::with_capacity(2 + self.available_calendars.len())
             .padding(space.space_xs)
-            .spacing(space.space_xs);
+            .spacing(space.space_xs)
+            .width(Length::Fill);
 
         // Back button header
         content = content.push(
@@ -658,11 +647,8 @@ impl AppModel {
                         .on_press(Message::Navigate(PopupPage::Settings))
                 )
                 .push(widget::text::title4(fl!("calendars-section")))
-                .spacing(space.space_xxxs)
+                .spacing(space.space_xxs)
         );
-
-        // Extra space after header
-        content = content.push(widget::vertical_space().height(space.space_xxxs));
 
         // Calendar toggles in a single list_column
         let mut calendars_list = widget::list_column()
@@ -709,7 +695,16 @@ impl AppModel {
             calendars_list = calendars_list.add(row);
         }
 
-        content = content.push(calendars_list);
+        if self.available_calendars.is_empty() {
+            // No calendars - show explanation
+            let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
+            content = content.push(
+                widget::text::body(fl!("no-calendars-description"))
+                    .class(secondary_text)
+            );
+        } else {
+            content = content.push(calendars_list);
+        }
 
         content.into()
     }
@@ -719,7 +714,8 @@ impl AppModel {
         let space = spacing();
         let mut content = widget::column::with_capacity(6 + self.config.meeting_url_patterns.len())
             .padding(space.space_xs)
-            .spacing(space.space_xs);
+            .spacing(space.space_xs)
+            .width(Length::Fill);
 
         // Back button header
         content = content.push(
@@ -734,11 +730,8 @@ impl AppModel {
                         .on_press(Message::Navigate(PopupPage::Settings))
                 )
                 .push(widget::text::title4(fl!("join-button-section")))
-                .spacing(space.space_xxxs)
+                .spacing(space.space_xxs)
         );
-
-        // Extra space after header
-        content = content.push(widget::vertical_space().height(space.space_xxxs));
 
         // Dropdown options for join button visibility (6 options)
         let join_options = vec![
@@ -853,7 +846,8 @@ impl AppModel {
         let space = spacing();
         let mut content = widget::column::with_capacity(4)
             .padding(space.space_xs)
-            .spacing(space.space_xs);
+            .spacing(space.space_xs)
+            .width(Length::Fill);
 
         // Back button header
         content = content.push(
@@ -868,11 +862,8 @@ impl AppModel {
                         .on_press(Message::Navigate(PopupPage::Settings))
                 )
                 .push(widget::text::title4(fl!("location-section")))
-                .spacing(space.space_xxxs)
+                .spacing(space.space_xxs)
         );
-
-        // Extra space after header
-        content = content.push(widget::vertical_space().height(space.space_xxxs));
 
         // Dropdown options for location visibility (6 options)
         let location_options = vec![
@@ -950,7 +941,8 @@ impl AppModel {
         let space = spacing();
         let mut content = widget::column::with_capacity(4)
             .padding(space.space_xs)
-            .spacing(space.space_xs);
+            .spacing(space.space_xs)
+            .width(Length::Fill);
 
         // Back button header
         content = content.push(
@@ -965,11 +957,8 @@ impl AppModel {
                         .on_press(Message::Navigate(PopupPage::Settings))
                 )
                 .push(widget::text::title4(fl!("calendar-indicator-section")))
-                .spacing(space.space_xxxs)
+                .spacing(space.space_xxs)
         );
-
-        // Extra space after header
-        content = content.push(widget::vertical_space().height(space.space_xxxs));
 
         // Calendar indicator settings group
         let indicator_settings = widget::list_column()
@@ -1017,7 +1006,8 @@ impl AppModel {
         let space = spacing();
         let mut content = widget::column::with_capacity(6)
             .padding(space.space_xs)
-            .spacing(space.space_xs);
+            .spacing(space.space_xs)
+            .width(Length::Fill);
 
         // Back button header
         content = content.push(
@@ -1032,11 +1022,8 @@ impl AppModel {
                         .on_press(Message::Navigate(PopupPage::Settings))
                 )
                 .push(widget::text::title4(fl!("filter-events-section")))
-                .spacing(space.space_xxxs)
+                .spacing(space.space_xxs)
         );
-
-        // Extra space after header
-        content = content.push(widget::vertical_space().height(space.space_xxxs));
 
         // Status filter dropdown options
         let status_options = vec![
@@ -1089,7 +1076,7 @@ impl AppModel {
                         widget::button::custom(
                             widget::row::with_capacity(2)
                                 .push(widget::text::body(email_summary))
-                                .push(widget::icon::from_name("go-next-symbolic").size(16))
+                                .push(widget::icon::from_name("go-next-symbolic").size(space.space_m))
                                 .spacing(space.space_xxs)
                                 .align_y(cosmic::iced::Alignment::Center)
                         )
@@ -1117,7 +1104,8 @@ impl AppModel {
         let space = spacing();
         let mut content = widget::column::with_capacity(6 + self.config.additional_emails.len())
             .padding(space.space_xs)
-            .spacing(space.space_xs);
+            .spacing(space.space_xs)
+            .width(Length::Fill);
 
         // Back button header
         content = content.push(
@@ -1132,11 +1120,8 @@ impl AppModel {
                         .on_press(Message::Navigate(PopupPage::EventsToShowSettings))
                 )
                 .push(widget::text::title4(fl!("additional-emails-section")))
-                .spacing(space.space_xxxs)
+                .spacing(space.space_xxs)
         );
-
-        // Extra space after header
-        content = content.push(widget::vertical_space().height(space.space_xxxs));
 
         // Email list as a grouped list
         let mut emails_list = widget::list_column()
@@ -1187,7 +1172,8 @@ impl AppModel {
         let mut content = widget::column::with_capacity(6)
             .padding(space.space_xs)
             .spacing(space.space_xs)
-            .align_x(cosmic::iced::Alignment::Center);
+            .align_x(cosmic::iced::Alignment::Center)
+            .width(Length::Fill);
 
         // Back button header (left-aligned)
         content = content.push(
@@ -1228,18 +1214,7 @@ impl AppModel {
 
         content.into()
     }
-}
 
-/// Parse a hex color string (e.g., "#62a0ea") to an iced Color
-fn parse_hex_color(hex: &str) -> Option<cosmic::iced::Color> {
-    let hex = hex.trim_start_matches('#');
-    if hex.len() != 6 {
-        return None;
-    }
-    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-    Some(cosmic::iced::Color::from_rgb8(r, g, b))
 }
 
 /// Create a calendar color indicator dot widget with optional tooltip showing calendar name
@@ -1273,101 +1248,6 @@ fn calendar_color_dot<'a, M: 'a>(
         Some(pos) => widget::tooltip(dot, widget::text(calendar_name), pos).into(),
         None => dot.into(),
     })
-}
-
-/// Format a duration as relative time (e.g., "in 2d 3h" or "in 2h 30m")
-/// Shows minutes only when the event is within 24 hours
-fn format_relative_time(duration: chrono::Duration) -> String {
-    let total_minutes = duration.num_minutes();
-    if total_minutes < 0 {
-        return fl!("time-now");
-    }
-
-    let days = total_minutes / (24 * 60);
-    let hours = (total_minutes % (24 * 60)) / 60;
-    let minutes = total_minutes % 60;
-
-    if days > 0 {
-        // More than a day away - show days and hours, skip minutes
-        if hours > 0 {
-            fl!("time-in-days-hours", days = days, hours = hours)
-        } else {
-            fl!("time-in-days", days = days)
-        }
-    } else if hours > 0 {
-        // Within 24 hours - show hours and minutes
-        if minutes > 0 {
-            fl!("time-in-hours-minutes", hours = hours, minutes = minutes)
-        } else {
-            fl!("time-in-hours", hours = hours)
-        }
-    } else {
-        fl!("time-in-minutes", minutes = minutes)
-    }
-}
-
-/// Extract a meeting URL from the meeting's location or description fields
-/// using the provided regex patterns. Returns the first matching URL found.
-fn extract_meeting_url(meeting: &Meeting, patterns: &[String]) -> Option<String> {
-    // Compile patterns, skipping invalid ones
-    let regexes: Vec<regex::Regex> = patterns
-        .iter()
-        .filter_map(|p| regex::Regex::new(p).ok())
-        .collect();
-
-    if regexes.is_empty() {
-        return None;
-    }
-
-    // Check location first (most common place for meeting links)
-    if let Some(ref location) = meeting.location {
-        for regex in &regexes {
-            if let Some(m) = regex.find(location) {
-                return Some(m.as_str().to_string());
-            }
-        }
-    }
-
-    // Then check description
-    if let Some(ref description) = meeting.description {
-        for regex in &regexes {
-            if let Some(m) = regex.find(description) {
-                return Some(m.as_str().to_string());
-            }
-        }
-    }
-
-    None
-}
-
-/// Get the physical location from a meeting (location that is not a URL).
-/// Returns None if location is empty, matches a meeting URL pattern, or looks like a URL.
-fn get_physical_location(meeting: &Meeting, patterns: &[String]) -> Option<String> {
-    let location = meeting.location.as_ref()?;
-    let location = location.trim();
-
-    if location.is_empty() {
-        return None;
-    }
-
-    // If location starts with http:// or https://, it's a URL
-    if location.starts_with("http://") || location.starts_with("https://") {
-        return None;
-    }
-
-    // Check if location matches any of the meeting URL patterns
-    let regexes: Vec<regex::Regex> = patterns
-        .iter()
-        .filter_map(|p| regex::Regex::new(p).ok())
-        .collect();
-
-    for regex in &regexes {
-        if regex.is_match(location) {
-            return None;
-        }
-    }
-
-    Some(location.to_string())
 }
 
 /// Open an event in the user's default calendar application.
@@ -1567,14 +1447,14 @@ impl cosmic::Application for AppModel {
 
             content = content
                 .push(
-                    widget::text(title)
+                    self.core.applet.text(title)
                         .font(cosmic::iced::font::Font {
                             weight: cosmic::iced::font::Weight::Bold,
                             ..cosmic::iced::font::Font::DEFAULT
                         })
                 )
                 .push(
-                    widget::text(info_str)
+                    self.core.applet.text(info_str)
                         .class(secondary_text)
                 );
             let join_url = match self.config.panel_join_button {
@@ -1598,9 +1478,17 @@ impl cosmic::Application for AppModel {
             };
 
             (content, join_url)
+        } else if self.available_calendars.is_empty() {
+            // No calendars configured - show warning
+            let content = widget::row::with_capacity(2)
+                .spacing(space.space_xxs)
+                .align_y(cosmic::iced::Alignment::Center)
+                .push(widget::icon::from_name("dialog-warning-symbolic").size(space.space_m))
+                .push(self.core.applet.text(fl!("no-calendars")));
+            (content, None)
         } else {
             let content = widget::row::with_capacity(1)
-                .push(widget::text(fl!("no-meetings-panel")));
+                .push(self.core.applet.text(fl!("no-meetings-panel")));
             (content, None)
         };
 
@@ -1620,7 +1508,7 @@ impl cosmic::Application for AppModel {
         if let Some(url) = show_panel_join {
             row = row.push(
                 widget::button::custom(
-                    widget::text::caption(fl!("join"))
+                    self.core.applet.text(fl!("join"))
                         .font(cosmic::iced::font::Font {
                             weight: cosmic::iced::font::Weight::Bold,
                             ..cosmic::iced::font::Font::DEFAULT
@@ -1651,7 +1539,14 @@ impl cosmic::Application for AppModel {
             PopupPage::About => self.view_about_page(),
         };
 
-        self.core.applet.popup_container(content).into()
+        // Consistent popup size limits
+        let limits = Limits::NONE
+            .max_width(360.0)
+            .min_width(360.0)
+            .min_height(200.0)
+            .max_height(800.0);
+
+        self.core.applet.popup_container(content).limits(limits).into()
     }
 
     /// Register subscriptions for this application.
@@ -1661,16 +1556,23 @@ impl cosmic::Application for AppModel {
     /// activated by selectively appending to the subscription batch, and will
     /// continue to execute for the duration that they remain in the batch.
     fn subscription(&self) -> Subscription<Self::Message> {
-        struct CalendarSubscription;
-
         let enabled_uids = self.config.enabled_calendar_uids.clone();
         let upcoming_count = self.config.upcoming_events_count as usize;
         let additional_emails = self.config.additional_emails.clone();
 
+        // Create a unique subscription ID based on config values that affect filtering.
+        // When these change, the subscription will be recreated with the new values.
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        enabled_uids.hash(&mut hasher);
+        upcoming_count.hash(&mut hasher);
+        additional_emails.hash(&mut hasher);
+        let config_hash = hasher.finish();
+
         Subscription::batch(vec![
             // Periodically refresh calendar and meeting data
             Subscription::run_with_id(
-                std::any::TypeId::of::<CalendarSubscription>(),
+                config_hash,
                 cosmic::iced::stream::channel(4, move |mut channel| async move {
                     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
                     loop {
@@ -1934,11 +1836,7 @@ impl cosmic::Application for AppModel {
                         None,
                         None,
                     );
-                    popup_settings.positioner.size_limits = Limits::NONE
-                        .max_width(372.0)
-                        .min_width(300.0)
-                        .min_height(200.0)
-                        .max_height(1080.0);
+                    popup_settings.positioner.size_limits = Limits::NONE;
                     get_popup(popup_settings)
                 }
             }
