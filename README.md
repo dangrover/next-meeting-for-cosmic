@@ -10,7 +10,7 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 ## Features
 
 - 📅 **See your next meeting at a glance** — Shows the meeting title, time, and location right in your panel
-- 🔗 **One-click join** — Detects video call URLs (Google Meet, Zoom, Teams, Webex) and shows a "Join" button.
+- 🔗 **One-click join** — Detects video call URLs (Google Meet, Zoom, Teams, Webex, or any other app) and shows a "Join" button.
 - 🎚️ **Flexible formatting options**:
     * Show the absolute time or relative time until (e.g. "in 2h 30m").
     * See room names and locations for in-person meetings
@@ -21,32 +21,25 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 
 ## Installation
 
+Download the latest release from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases).
+
 ### Flatpak (Recommended)
 
-```bash
-# Coming soon
-flatpak install flathub com.dangrover.next-meeting-app
-```
-
-### Debian/Ubuntu
+Download the `.flatpak` file, then install it:
 
 ```bash
-# Coming soon
-sudo apt install cosmic-next-meeting
+flatpak install --user cosmic-next-meeting.flatpak
 ```
 
-### From Source
+### Debian/Ubuntu/Pop!_OS
 
-Requires Rust and the [just](https://github.com/casey/just) command runner.
+Download the `.deb` file, then install it:
 
 ```bash
-git clone https://github.com/pocketengineer/cosmic-next-meeting.git
-cd cosmic-next-meeting
-just build-release
-just install
+sudo apt install ./cosmic-next-meeting_*.deb
 ```
 
-Then restart your COSMIC panel or log out and back in.
+After installing, restart your COSMIC panel or log out and back in.
 
 ## Requirements
 
