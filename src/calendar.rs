@@ -53,10 +53,10 @@ impl CalendarInfo {
     /// Some calendars (contacts, weather, birthdays) don't contain actual meetings.
     #[must_use]
     pub fn is_meeting_source(&self) -> bool {
-        match self.backend.as_deref() {
-            Some("contacts") | Some("weather") | Some("birthdays") => false,
-            _ => true,
-        }
+        !matches!(
+            self.backend.as_deref(),
+            Some("contacts" | "weather" | "birthdays")
+        )
     }
 }
 
@@ -726,23 +726,20 @@ async fn get_calendars_from_dbus(conn: &Connection) -> Option<Vec<CalendarInfo>>
             if let Ok(reply) = factory_proxy
                 .call_method("OpenCalendar", &(cal.uid.as_str(),))
                 .await
+                && let Ok((calendar_path, bus_name)) = reply.body::<(String, String)>()
+                && let Ok(cal_proxy) = zbus::Proxy::new(
+                    conn,
+                    bus_name.as_str(),
+                    calendar_path.as_str(),
+                    "org.gnome.evolution.dataserver.Calendar",
+                )
+                .await
             {
-                if let Ok((calendar_path, bus_name)) = reply.body::<(String, String)>() {
-                    if let Ok(cal_proxy) = zbus::Proxy::new(
-                        conn,
-                        bus_name.as_str(),
-                        calendar_path.as_str(),
-                        "org.gnome.evolution.dataserver.Calendar",
-                    )
-                    .await
-                    {
-                        // Get the Revision property (format: "2026-01-08T04:19:20Z(0)")
-                        if let Ok(revision) = cal_proxy.get_property::<String>("Revision").await {
-                            // Extract just the timestamp part before the parentheses
-                            let timestamp = revision.split('(').next().unwrap_or(&revision);
-                            cal.last_synced = Some(timestamp.to_string());
-                        }
-                    }
+                // Get the Revision property (format: "2026-01-08T04:19:20Z(0)")
+                if let Ok(revision) = cal_proxy.get_property::<String>("Revision").await {
+                    // Extract just the timestamp part before the parentheses
+                    let timestamp = revision.split('(').next().unwrap_or(&revision);
+                    cal.last_synced = Some(timestamp.to_string());
                 }
             }
         }
