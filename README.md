@@ -23,15 +23,6 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 
 ### Flatpak (Recommended)
 
-**Option A: Add the Flatpak repo (recommended for automatic updates)**
-
-```bash
-flatpak remote-add --if-not-exists --user next-meeting https://dangrover.github.io/next-meeting-for-cosmic
-flatpak install --user next-meeting com.dangrover.next-meeting-app
-```
-
-**Option B: Download and install directly**
-
 Download the `.flatpak` file from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases), then install it:
 
 ```bash
