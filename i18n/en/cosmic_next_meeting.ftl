@@ -1,6 +1,7 @@
 app-title = Next Meeting for COSMIC
 no-meetings = No upcoming meetings
 no-meetings-panel = No meetings
+loading-meetings = Loading meetings...
 settings = Settings
 open-calendar = Calendar
 back = Back

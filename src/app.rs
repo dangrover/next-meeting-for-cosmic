@@ -38,6 +38,8 @@ pub struct AppModel {
     current_page: PopupPage,
     /// Whether a calendar refresh is in progress.
     is_refreshing: bool,
+    /// Whether the initial meeting fetch has completed.
+    has_loaded_meetings: bool,
 }
 
 /// Navigation state for popup pages
@@ -311,6 +313,11 @@ impl AppModel {
                         .push(cosmic::applet::menu_button(row).on_press(Message::OpenEvent(uid)));
                 }
             }
+        } else if !self.has_loaded_meetings {
+            // Still loading initial data
+            content = content.push(cosmic::applet::padded_control(widget::text::body(fl!(
+                "loading-meetings"
+            ))));
         } else if self.available_calendars.is_empty() {
             // No calendars configured - show prominent centered message
             let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
@@ -1739,6 +1746,11 @@ impl cosmic::Application for AppModel {
             };
 
             (content, join_url)
+        } else if !self.has_loaded_meetings {
+            // Still loading initial data
+            let content =
+                widget::row::with_capacity(1).push(self.core.applet.text(fl!("loading-meetings")));
+            (content, None)
         } else if self.available_calendars.is_empty() {
             // No calendars configured - show warning
             let content = widget::row::with_capacity(2)
@@ -1935,6 +1947,7 @@ impl cosmic::Application for AppModel {
             }
             Message::MeetingsUpdated(meetings) => {
                 self.upcoming_meetings = meetings;
+                self.has_loaded_meetings = true;
             }
             Message::CalendarsLoaded(calendars) => {
                 self.available_calendars = calendars;
