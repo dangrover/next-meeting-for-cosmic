@@ -81,5 +81,5 @@ Settings pages use `widget::list_column()` for grouped items with dividers.
 - **Branching**: Never make changes directly on the `main` branch. Always switch to `dev` (or create a feature branch) before making code changes. If you find yourself on `main`, stash changes and switch branches first.
 - **Before committing**: Always run `cargo fmt` before committing to ensure code passes CI formatting checks.
 - **Testing before pushing**: Do not push changes without letting the user test first. After making code changes, wait for the user to run `just dev` and verify the changes work correctly. Only push when explicitly asked, or when debugging CI issues.
-- **Atomic commits**: Suggest making commits between unrelated changes to keep history clean. Don't let unrelated work pile up in a single commit.
+- **Atomic commits**: Before starting new work, check for uncommitted changes and prompt to commit them first. Keep commits focused on single changes - don't let unrelated work pile up in a single commit.
 - **Releases**: To trigger a release, create a tag with a `v` prefix (e.g., `v0.9.0`). Tags without the `v` prefix will not trigger the release workflow.
