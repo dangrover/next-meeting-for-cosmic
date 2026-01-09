@@ -1365,7 +1365,12 @@ impl AppModel {
         content = content.push(widget::vertical_space().height(space.space_xs));
 
         // Command in a styled container (read-only text input for selectability)
-        let command: &'static str = "cosmic-next-meeting --join-next";
+        // Show different command based on whether we're running in Flatpak
+        let command: &'static str = if std::env::var("FLATPAK_ID").is_ok() {
+            "flatpak run com.dangrover.next-meeting-app --join-next"
+        } else {
+            "cosmic-next-meeting --join-next"
+        };
         content = content.push(
             widget::container(
                 widget::row::with_capacity(2)
