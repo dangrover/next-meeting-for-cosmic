@@ -26,7 +26,7 @@ pub fn spacing() -> cosmic_theme::Spacing {
 
 /// Generate a unique ID for an email input field
 pub fn email_input_id(idx: usize) -> id::Id {
-    id::Id::new(format!("email_input_{}", idx))
+    id::Id::new(format!("email_input_{idx}"))
 }
 
 /// Secondary text style for dimmed/muted text appearance

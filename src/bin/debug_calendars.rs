@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = std::env::args().collect();
 
-    match args.get(1).map(|s| s.as_str()) {
+    match args.get(1).map(String::as_str) {
         Some("list") => list_calendars(&conn).await?,
         Some("events") => {
             let uid = args
@@ -106,7 +106,7 @@ async fn list_calendars(conn: &Connection) -> Result<(), Box<dyn std::error::Err
 
                 // Only show calendars and task lists
                 if data.contains("[Calendar]") {
-                    println!("{:<45} {:<30} {}", uid, display_name, source_type);
+                    println!("{uid:<45} {display_name:<30} {source_type}");
                 }
             }
         }
@@ -167,7 +167,7 @@ async fn show_raw_events(
         // Show full raw ICS (first 20 lines)
         for (j, line) in ics.lines().enumerate() {
             if j < 20 {
-                println!("  {}", line);
+                println!("  {line}");
             }
         }
         if ics.lines().count() > 20 {
@@ -176,7 +176,7 @@ async fn show_raw_events(
 
         // Also show what ical crate parses (wrap in VCALENDAR if needed)
         let wrapped = if ics.trim().starts_with("BEGIN:VEVENT") {
-            format!("BEGIN:VCALENDAR\nVERSION:2.0\n{}\nEND:VCALENDAR", ics)
+            format!("BEGIN:VCALENDAR\nVERSION:2.0\n{ics}\nEND:VCALENDAR")
         } else {
             ics.clone()
         };
@@ -192,7 +192,7 @@ async fn show_raw_events(
                     }
                 }
             }
-            Some(Err(e)) => println!("  [ical crate] parse error: {}", e),
+            Some(Err(e)) => println!("  [ical crate] parse error: {e}"),
             None => println!("  [ical crate] no calendar found"),
         }
         println!();
@@ -242,7 +242,7 @@ fn parse_event(ics: &str) -> Option<ParsedEvent> {
     for line in ics.lines() {
         let line = line.trim();
         if line.starts_with("SUMMARY") {
-            title = line.split(':').nth(1).map(|s| s.to_string());
+            title = line.split(':').nth(1).map(ToString::to_string);
         } else if line.starts_with("DTSTART") {
             start = parse_ical_datetime(line);
         }
@@ -278,7 +278,7 @@ fn parse_ical_datetime(line: &str) -> Option<chrono::DateTime<chrono::Local>> {
     // Handle date-only (YYYYMMDD)
     if value.len() == 8 {
         let naive =
-            NaiveDateTime::parse_from_str(&format!("{}T000000", value), "%Y%m%dT%H%M%S").ok()?;
+            NaiveDateTime::parse_from_str(&format!("{value}T000000"), "%Y%m%dT%H%M%S").ok()?;
         return Local.from_local_datetime(&naive).single();
     }
 
@@ -286,7 +286,7 @@ fn parse_ical_datetime(line: &str) -> Option<chrono::DateTime<chrono::Local>> {
 }
 
 fn parse_field(data: &str, field: &str) -> Option<String> {
-    let prefix = format!("{}=", field);
+    let prefix = format!("{field}=");
     for line in data.lines() {
         let line = line.trim();
         if line.starts_with(&prefix) {

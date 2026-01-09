@@ -67,9 +67,8 @@ pub async fn get_available_calendars() -> Vec<CalendarInfo> {
         return Vec::new();
     }
 
-    let conn = match Connection::session().await {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
+    let Ok(conn) = Connection::session().await else {
+        return Vec::new();
     };
 
     get_calendars_from_dbus(&conn).await.unwrap_or_default()
@@ -78,17 +77,15 @@ pub async fn get_available_calendars() -> Vec<CalendarInfo> {
 /// Refresh all calendars by triggering an upstream sync with remote servers.
 /// This calls the Refresh D-Bus method on each calendar, which forces EDS to
 /// fetch the latest data from CalDAV/Google/etc servers.
-/// If enabled_uids is empty, all calendars are refreshed.
+/// If `enabled_uids` is empty, all calendars are refreshed.
 pub async fn refresh_calendars(enabled_uids: &[String]) {
-    let conn = match Connection::session().await {
-        Ok(c) => c,
-        Err(_) => return,
+    let Ok(conn) = Connection::session().await else {
+        return;
     };
 
     // Get calendar source UIDs
-    let mut source_uids = match get_calendar_source_uids(&conn).await {
-        Some(uids) => uids,
-        None => return,
+    let Some(mut source_uids) = get_calendar_source_uids(&conn).await else {
+        return;
     };
 
     // Filter to only enabled calendars if specified
@@ -97,16 +94,15 @@ pub async fn refresh_calendars(enabled_uids: &[String]) {
     }
 
     // Open calendar factory
-    let calendar_factory_proxy = match zbus::Proxy::new(
+    let Ok(calendar_factory_proxy) = zbus::Proxy::new(
         &conn,
         "org.gnome.evolution.dataserver.Calendar8",
         "/org/gnome/evolution/dataserver/CalendarFactory",
         "org.gnome.evolution.dataserver.CalendarFactory",
     )
     .await
-    {
-        Ok(p) => p,
-        Err(_) => return,
+    else {
+        return;
     };
 
     // Refresh each calendar
@@ -124,16 +120,15 @@ pub async fn refresh_calendars(enabled_uids: &[String]) {
         };
 
         // Get a proxy to the calendar
-        let calendar_proxy = match zbus::Proxy::new(
+        let Ok(calendar_proxy) = zbus::Proxy::new(
             &conn,
             bus_name.as_str(),
             calendar_path.as_str(),
             "org.gnome.evolution.dataserver.Calendar",
         )
         .await
-        {
-            Ok(p) => p,
-            Err(_) => continue,
+        else {
+            continue;
         };
 
         // Call Refresh method (fire and forget - don't wait for completion)
@@ -242,7 +237,7 @@ async fn watch_single_calendar(
 }
 
 /// Fetch upcoming meetings from Evolution Data Server via D-Bus
-/// If enabled_uids is empty, all calendars are queried.
+/// If `enabled_uids` is empty, all calendars are queried.
 /// Otherwise, only calendars with UIDs in the list are queried.
 /// Returns up to `limit` meetings (use limit=0 for just the next meeting info).
 /// `additional_emails` are extra email addresses to identify the user in ATTENDEE fields.
@@ -256,14 +251,14 @@ pub async fn get_upcoming_meetings(
         return Vec::new();
     }
 
-    let conn = match Connection::session().await {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
+    let Ok(conn) = Connection::session().await else {
+        return Vec::new();
     };
 
     get_meetings_from_dbus(&conn, enabled_uids, limit.max(1), additional_emails).await
 }
 
+#[allow(clippy::too_many_lines)]
 async fn get_meetings_from_dbus(
     conn: &Connection,
     enabled_uids: &[String],
@@ -277,9 +272,8 @@ async fn get_meetings_from_dbus(
     // 4. Parse the iCalendar objects
 
     // Step 1: Get calendar source UIDs from D-Bus SourceManager
-    let mut source_uids = match get_calendar_source_uids(conn).await {
-        Some(uids) => uids,
-        None => return Vec::new(),
+    let Some(mut source_uids) = get_calendar_source_uids(conn).await else {
+        return Vec::new();
     };
 
     // Filter to only enabled calendars if a filter is specified
@@ -288,16 +282,15 @@ async fn get_meetings_from_dbus(
     }
 
     // Step 2: Open calendars and get events
-    let calendar_factory_proxy = match zbus::Proxy::new(
+    let Ok(calendar_factory_proxy) = zbus::Proxy::new(
         conn,
         "org.gnome.evolution.dataserver.Calendar8",
         "/org/gnome/evolution/dataserver/CalendarFactory",
         "org.gnome.evolution.dataserver.CalendarFactory",
     )
     .await
-    {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
+    else {
+        return Vec::new();
     };
 
     let mut all_meetings: Vec<Meeting> = Vec::new();
@@ -316,16 +309,15 @@ async fn get_meetings_from_dbus(
         };
 
         // Step 3: Query the calendar for events using GetObjectList
-        let calendar_proxy = match zbus::Proxy::new(
+        let Ok(calendar_proxy) = zbus::Proxy::new(
             conn,
             bus_name.as_str(),
             calendar_path.as_str(),
             "org.gnome.evolution.dataserver.Calendar",
         )
         .await
-        {
-            Ok(p) => p,
-            Err(_) => continue,
+        else {
+            continue;
         };
 
         // Get the CalEmailAddress property for this calendar
@@ -380,10 +372,7 @@ async fn get_meetings_from_dbus(
             // EDS returns raw VEVENT objects without VCALENDAR wrapper
             // The ical crate needs the wrapper, so add it if missing
             let wrapped = if ics_object.trim().starts_with("BEGIN:VEVENT") {
-                format!(
-                    "BEGIN:VCALENDAR\nVERSION:2.0\n{}\nEND:VCALENDAR",
-                    ics_object
-                )
+                format!("BEGIN:VCALENDAR\nVERSION:2.0\n{ics_object}\nEND:VCALENDAR")
             } else {
                 ics_object.clone()
             };
@@ -422,7 +411,7 @@ async fn get_meetings_from_dbus(
                         .iter()
                         .find(|p| p.name == "UID")
                         .and_then(|p| p.value.as_ref())
-                        .map(|s| s.to_string())
+                        .cloned()
                         .unwrap_or_default();
 
                     let title = event
@@ -430,22 +419,21 @@ async fn get_meetings_from_dbus(
                         .iter()
                         .find(|p| p.name == "SUMMARY")
                         .and_then(|p| p.value.as_ref())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "Untitled Event".to_string());
+                        .map_or_else(|| "Untitled Event".to_string(), String::clone);
 
                     let location = event
                         .properties
                         .iter()
                         .find(|p| p.name == "LOCATION")
                         .and_then(|p| p.value.as_ref())
-                        .map(|s| s.to_string());
+                        .cloned();
 
                     let description = event
                         .properties
                         .iter()
                         .find(|p| p.name == "DESCRIPTION")
                         .and_then(|p| p.value.as_ref())
-                        .map(|s| s.to_string());
+                        .cloned();
 
                     // If this is a modified instance (has RECURRENCE-ID), use it directly
                     // The DTSTART in a modified instance is the actual occurrence time
@@ -603,7 +591,7 @@ async fn get_meetings_from_dbus(
 
 /// Get calendar source UIDs from Evolution Data Server via D-Bus
 ///
-/// This queries the SourceManager's ObjectManager interface to discover
+/// This queries the `SourceManager`'s `ObjectManager` interface to discover
 /// all sources, including those from GNOME Online Accounts which are
 /// not stored as files in ~/.config/evolution/sources/
 async fn get_calendar_source_uids(conn: &Connection) -> Option<Vec<String>> {
@@ -760,7 +748,7 @@ async fn get_calendars_from_dbus(conn: &Connection) -> Option<Vec<CalendarInfo>>
     Some(calendars)
 }
 
-/// Parse DisplayName from INI-format source data
+/// Parse `DisplayName` from INI-format source data
 fn parse_display_name(data: &str) -> Option<String> {
     // Look for DisplayName= line (without locale suffix like DisplayName[en])
     for line in data.lines() {
@@ -793,7 +781,7 @@ fn parse_color(data: &str) -> Option<String> {
     None
 }
 
-/// Parse BackendName from INI-format source data (in [Calendar] section)
+/// Parse `BackendName` from INI-format source data (in [Calendar] section)
 fn parse_backend_name(data: &str) -> Option<String> {
     // Look for BackendName= in the [Calendar] section
     let mut in_calendar_section = false;
@@ -854,15 +842,14 @@ fn parse_attendance_status(
         // Check if this attendee matches any of the user's emails
         let is_user = attendee_email
             .as_ref()
-            .map(|email| user_emails_lower.iter().any(|ue| ue == email))
-            .unwrap_or(false);
+            .is_some_and(|email| user_emails_lower.iter().any(|ue| ue == email));
 
         if is_user {
             // Extract PARTSTAT from parameters
             let partstat = params.and_then(|params| {
                 params.iter().find_map(|(name, values)| {
                     if name == "PARTSTAT" {
-                        values.first().map(|v| v.as_str())
+                        values.first().map(String::as_str)
                     } else {
                         None
                     }
@@ -952,7 +939,7 @@ fn parse_ical_datetime(value: &str, tzid: Option<&str>) -> Option<DateTime<Local
     if value.len() == 8
         && value.chars().all(|c| c.is_ascii_digit())
         && let Ok(naive) =
-            NaiveDateTime::parse_from_str(&format!("{}T000000", value), "%Y%m%dT%H%M%S")
+            NaiveDateTime::parse_from_str(&format!("{value}T000000"), "%Y%m%dT%H%M%S")
     {
         return Local.from_local_datetime(&naive).single();
     }
@@ -977,12 +964,21 @@ fn extract_timezone_from_prop(prop: &ical::property::Property) -> Option<String>
 fn parse_ical_timezone(tz_str: &str) -> Option<Tz> {
     // Common IANA timezones (convert slashes to double underscores for rrule)
     // The rrule crate uses constants like Tz::America__Los_Angeles
+    // Windows timezone aliases are grouped with their IANA equivalents
     match tz_str {
-        // US timezones
-        "America/Los_Angeles" => Some(Tz::America__Los_Angeles),
-        "America/New_York" => Some(Tz::America__New_York),
-        "America/Chicago" => Some(Tz::America__Chicago),
-        "America/Denver" => Some(Tz::America__Denver),
+        // US timezones (including Windows aliases)
+        "America/Los_Angeles" | "Pacific Standard Time" | "Pacific Daylight Time" => {
+            Some(Tz::America__Los_Angeles)
+        }
+        "America/New_York" | "Eastern Standard Time" | "Eastern Daylight Time" => {
+            Some(Tz::America__New_York)
+        }
+        "America/Chicago" | "Central Standard Time" | "Central Daylight Time" => {
+            Some(Tz::America__Chicago)
+        }
+        "America/Denver" | "Mountain Standard Time" | "Mountain Daylight Time" => {
+            Some(Tz::America__Denver)
+        }
         "America/Phoenix" => Some(Tz::America__Phoenix),
         "America/Detroit" => Some(Tz::America__Detroit),
         "America/Indiana/Indianapolis" => Some(Tz::America__Indiana__Indianapolis),
@@ -1008,16 +1004,12 @@ fn parse_ical_timezone(tz_str: &str) -> Option<Tz> {
         "Australia/Melbourne" => Some(Tz::Australia__Melbourne),
         // UTC
         "UTC" | "Etc/UTC" => Some(Tz::UTC),
-        // Windows timezone aliases
-        "Pacific Standard Time" | "Pacific Daylight Time" => Some(Tz::America__Los_Angeles),
-        "Eastern Standard Time" | "Eastern Daylight Time" => Some(Tz::America__New_York),
-        "Central Standard Time" | "Central Daylight Time" => Some(Tz::America__Chicago),
-        "Mountain Standard Time" | "Mountain Daylight Time" => Some(Tz::America__Denver),
         _ => None,
     }
 }
 
 /// Expand a recurring event (RRULE) into individual occurrences within a time range
+#[allow(clippy::format_push_string)]
 fn expand_rrule(
     dtstart_val: &str,
     rrule_val: &str,
@@ -1039,7 +1031,7 @@ fn expand_rrule(
     // Parse naive datetime
     let naive_dt = if dtstart_str.len() == 8 && dtstart_str.chars().all(|c| c.is_ascii_digit()) {
         // Date only
-        NaiveDateTime::parse_from_str(&format!("{}T000000", dtstart_str), "%Y%m%dT%H%M%S").ok()
+        NaiveDateTime::parse_from_str(&format!("{dtstart_str}T000000"), "%Y%m%dT%H%M%S").ok()
     } else {
         NaiveDateTime::parse_from_str(dtstart_str.trim_end_matches('Z'), "%Y%m%dT%H%M%S").ok()
     };
@@ -1050,14 +1042,15 @@ fn expand_rrule(
 
     // Build the DTSTART string for rrule crate
     // Format: DTSTART;TZID=America/Los_Angeles:20251211T080000
+    let datetime_formatted = naive_dt.format("%Y%m%dT%H%M%S");
     let dtstart_for_rrule = if tz == Tz::UTC || dtstart_str.ends_with('Z') {
-        format!("DTSTART:{}Z", naive_dt.format("%Y%m%dT%H%M%S"))
+        format!("DTSTART:{datetime_formatted}Z")
     } else {
-        format!("DTSTART;TZID={}:{}", tz, naive_dt.format("%Y%m%dT%H%M%S"))
+        format!("DTSTART;TZID={tz}:{datetime_formatted}")
     };
 
     // Build the full RRuleSet string
-    let mut rrule_str = format!("{}\nRRULE:{}", dtstart_for_rrule, rrule_val);
+    let mut rrule_str = format!("{dtstart_for_rrule}\nRRULE:{rrule_val}");
 
     // Add EXDATE entries
     for exdate in exdates {
@@ -1082,14 +1075,11 @@ fn expand_rrule(
         };
 
         // Format EXDATE for rrule crate
+        let trimmed_val = exdate_val.trim_end_matches('Z');
         if exdate_tz == Tz::UTC || exdate_val.ends_with('Z') {
-            rrule_str.push_str(&format!("\nEXDATE:{}Z", exdate_val.trim_end_matches('Z')));
+            rrule_str.push_str(&format!("\nEXDATE:{trimmed_val}Z"));
         } else {
-            rrule_str.push_str(&format!(
-                "\nEXDATE;TZID={}:{}",
-                exdate_tz,
-                exdate_val.trim_end_matches('Z')
-            ));
+            rrule_str.push_str(&format!("\nEXDATE;TZID={exdate_tz}:{trimmed_val}"));
         }
     }
 

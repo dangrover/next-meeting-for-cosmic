@@ -19,9 +19,9 @@ pub fn format_time(dt: &chrono::DateTime<chrono::Local>, include_day: bool) -> S
         "%I:%M %p"
     };
     if include_day {
-        dt.format(&format!("%A, %B %d at {}", time_fmt)).to_string()
+        dt.format(&format!("%A, %B %d at {time_fmt}")).to_string()
     } else {
-        dt.format(&format!("%a {}", time_fmt)).to_string()
+        dt.format(&format!("%a {time_fmt}")).to_string()
     }
 }
 
@@ -42,7 +42,7 @@ pub fn format_panel_time(
         dt.format(time_fmt).to_string().trim().to_string()
     } else {
         // Show day and time: "Fri 2:30pm" or "Fri 14:30"
-        dt.format(&format!("%a {}", time_fmt))
+        dt.format(&format!("%a {time_fmt}"))
             .to_string()
             .trim()
             .to_string()
@@ -80,7 +80,7 @@ pub fn format_relative_time(duration: chrono::Duration) -> String {
     }
 }
 
-/// Format a backend name for display (e.g., "caldav" → "CalDAV")
+/// Format a backend name for display (e.g., `caldav` → `CalDAV`)
 pub fn format_backend_name(backend: &str) -> &'static str {
     match backend.to_lowercase().as_str() {
         "local" => "Local",
@@ -100,8 +100,8 @@ pub fn format_last_updated(iso_timestamp: &str) -> String {
 
     let Ok(timestamp) = DateTime::parse_from_rfc3339(iso_timestamp).or_else(|_| {
         // Try without timezone (assume UTC)
-        format!("{}+00:00", iso_timestamp.trim_end_matches('Z'))
-            .parse::<DateTime<chrono::FixedOffset>>()
+        let trimmed = iso_timestamp.trim_end_matches('Z');
+        format!("{trimmed}+00:00").parse::<DateTime<chrono::FixedOffset>>()
     }) else {
         return fl!("updated-unknown");
     };

@@ -76,10 +76,23 @@ The main popup follows the same pattern as other COSMIC applets (e.g., Power app
 
 Settings pages use `widget::list_column()` for grouped items with dividers.
 
+## Clippy Pedantic
+
+This project uses `clippy::pedantic` warnings. Run `just check` before committing. Common patterns to follow:
+
+- **Format strings**: Use inlined variables: `format!("{foo}")` not `format!("{}", foo)`
+- **Option chains**: Use `.cloned()` instead of `.map(String::clone)` or `.map(|s| s.to_string())`
+- **Option fallbacks**: Use `.map_or_else(default_fn, transform_fn)` instead of `.map(f).unwrap_or_else(g)`
+- **Boolean checks**: Use `.is_some_and(predicate)` instead of `.map(predicate).unwrap_or(false)`
+- **Let-else**: Use `let Ok(x) = expr else { return; }` instead of `match expr { Ok(x) => x, Err(_) => return }`
+- **Match arms**: Merge arms with identical bodies; put wildcard pattern last
+- **Doc comments**: Use backticks around identifiers in doc comments (e.g., `` `CalendarInfo` ``)
+- **Method references**: Use `String::as_str` instead of `|s| s.as_str()` when possible
+
 ## Workflow
 
 - **Branching**: Never make changes directly on the `main` branch. Always switch to `dev` (or create a feature branch) before making code changes. If you find yourself on `main`, stash changes and switch branches first.
-- **Before committing**: Always run `cargo fmt` before committing to ensure code passes CI formatting checks.
+- **Before committing**: Always run `cargo fmt` and `just check` before committing to ensure code passes CI formatting and linting checks.
 - **Testing before pushing**: Do not push changes without letting the user test first. After making code changes, wait for the user to run `just dev` and verify the changes work correctly. Only push when explicitly asked, or when debugging CI issues.
 - **Atomic commits**: Before starting new work, check for uncommitted changes and prompt to commit them first. Keep commits focused on single changes - don't let unrelated work pile up in a single commit.
 - **Releases**: To trigger a release, create a tag with a `v` prefix (e.g., `v0.9.0`). Tags without the `v` prefix will not trigger the release workflow.

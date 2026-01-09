@@ -11,9 +11,9 @@ pub enum DisplayFormat {
     DayAndTime,
     /// Show relative time (e.g., "In 2d 3h: All Hands")
     Relative,
-    /// Legacy: treated as DayAndTime
+    /// Legacy: treated as `DayAndTime`
     TitleOnly,
-    /// Legacy: treated as DayAndTime
+    /// Legacy: treated as `DayAndTime`
     TimeOnly,
 }
 
@@ -65,6 +65,7 @@ pub enum InProgressMeeting {
 
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
 #[version = 1]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
     /// Whether to automatically refresh calendars from remote servers.
     pub auto_refresh_enabled: bool,
@@ -96,7 +97,7 @@ pub struct Config {
     /// Filter events by attendance status.
     pub event_status_filter: EventStatusFilter,
     /// Additional email addresses to identify the user in ATTENDEE fields.
-    /// Used in addition to the CalEmailAddress from each calendar.
+    /// Used in addition to the `CalEmailAddress` from each calendar.
     pub additional_emails: Vec<String>,
     /// Whether to show meetings that have already started.
     pub show_in_progress: InProgressMeeting,

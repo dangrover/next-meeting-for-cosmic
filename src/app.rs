@@ -140,7 +140,7 @@ impl AppModel {
                     self.available_calendars
                         .iter()
                         .find(|c| &c.uid == *uid)
-                        .is_some_and(|c| c.is_meeting_source())
+                        .is_some_and(super::calendar::CalendarInfo::is_meeting_source)
                 })
                 .cloned()
                 .collect()
@@ -148,6 +148,7 @@ impl AppModel {
     }
 
     /// Main popup page showing meeting info and settings nav
+    #[allow(clippy::too_many_lines)]
     fn view_main_page(&self) -> Element<'_, Message> {
         let space = spacing();
 
@@ -391,6 +392,7 @@ impl AppModel {
     }
 
     /// Settings page with back button
+    #[allow(clippy::too_many_lines)]
     fn view_settings_page(&self) -> Element<'_, Message> {
         use crate::config::EventStatusFilter;
 
@@ -518,6 +520,7 @@ impl AppModel {
     }
 
     /// Calendars selection page
+    #[allow(clippy::too_many_lines)]
     fn view_calendars_page(&self) -> Element<'_, Message> {
         let space = spacing();
         let mut content = widget::column::with_capacity(2 + self.available_calendars.len())
@@ -871,7 +874,6 @@ impl AppModel {
 
         // Display format dropdown
         let format_idx = match self.config.display_format {
-            DisplayFormat::DayAndTime => Some(0),
             DisplayFormat::Relative => Some(1),
             _ => Some(0),
         };
@@ -1011,6 +1013,7 @@ impl AppModel {
     }
 
     /// Filter events settings page
+    #[allow(clippy::too_many_lines)]
     fn view_events_to_show_settings_page(&self) -> Element<'_, Message> {
         use crate::config::EventStatusFilter;
 
@@ -1246,10 +1249,9 @@ impl AppModel {
         // Current interval index
         let interval_idx = match self.config.auto_refresh_interval_minutes {
             5 => Some(0),
-            10 => Some(1),
             15 => Some(2),
             30 => Some(3),
-            _ => Some(1),
+            _ => Some(1), // 10 or any other value defaults to index 1
         };
 
         // Refresh settings group
@@ -1322,6 +1324,7 @@ impl AppModel {
     }
 
     /// About page with app info
+    #[allow(clippy::unused_self)]
     fn view_about_page(&self) -> Element<'_, Message> {
         let space = spacing();
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
@@ -1359,7 +1362,7 @@ impl AppModel {
         // Version with commit hash
         let version = env!("CARGO_PKG_VERSION");
         let git_hash = env!("GIT_HASH");
-        let version_str = format!("{} ({})", version, git_hash);
+        let version_str = format!("{version} ({git_hash})");
         content = content
             .push(widget::text::body(fl!("version", version = version_str)).class(secondary_text));
 
@@ -1545,6 +1548,7 @@ impl cosmic::Application for AppModel {
     /// The applet's button in the panel will be drawn using the main view method.
     /// This view should emit messages to toggle the applet's popup window, which will
     /// be drawn using the `view_window` method.
+    #[allow(clippy::too_many_lines)]
     fn view(&self) -> Element<'_, Self::Message> {
         use chrono::Local;
         let space = spacing();
@@ -1642,7 +1646,6 @@ impl cosmic::Application for AppModel {
                 }))
                 .push(self.core.applet.text(info_str).class(secondary_text));
             let join_url = match self.config.panel_join_button {
-                JoinButtonVisibility::Hide => None,
                 JoinButtonVisibility::Show => {
                     extract_meeting_url(meeting, &self.config.meeting_url_patterns)
                 }
@@ -1658,7 +1661,11 @@ impl cosmic::Application for AppModel {
                 JoinButtonVisibility::ShowIf5m if minutes_until <= 5 => {
                     extract_meeting_url(meeting, &self.config.meeting_url_patterns)
                 }
-                _ => None,
+                JoinButtonVisibility::Hide
+                | JoinButtonVisibility::ShowIfSameDay
+                | JoinButtonVisibility::ShowIf30m
+                | JoinButtonVisibility::ShowIf15m
+                | JoinButtonVisibility::ShowIf5m => None,
             };
 
             (content, join_url)
@@ -1757,6 +1764,8 @@ impl cosmic::Application for AppModel {
     /// activated by selectively appending to the subscription batch, and will
     /// continue to execute for the duration that they remain in the batch.
     fn subscription(&self) -> Subscription<Self::Message> {
+        use std::hash::{Hash, Hasher};
+
         let enabled_uids = self.config.enabled_calendar_uids.clone();
         let upcoming_count = self.config.upcoming_events_count as usize;
         let additional_emails = self.config.additional_emails.clone();
@@ -1765,7 +1774,6 @@ impl cosmic::Application for AppModel {
 
         // Create a unique subscription ID based on config values that affect filtering.
         // When these change, the subscription will be recreated with the new values.
-        use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         enabled_uids.hash(&mut hasher);
         upcoming_count.hash(&mut hasher);
@@ -1858,6 +1866,7 @@ impl cosmic::Application for AppModel {
     /// Tasks may be returned for asynchronous execution of code in the background
     /// on the application's async runtime. The application will not exit until all
     /// tasks are finished.
+    #[allow(clippy::too_many_lines)]
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
             Message::UpdateConfig(config) => {
@@ -1911,16 +1920,18 @@ impl cosmic::Application for AppModel {
             }
             Message::SelectDisplayFormat(idx) => {
                 self.config.display_format = match idx {
-                    0 => DisplayFormat::DayAndTime,
                     1 => DisplayFormat::Relative,
-                    _ => DisplayFormat::DayAndTime,
+                    _ => DisplayFormat::DayAndTime, // 0 or any other value
                 };
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }
             }
             Message::SetUpcomingEventsCount(count) => {
-                self.config.upcoming_events_count = count.clamp(0, 10) as u8;
+                #[allow(clippy::cast_sign_loss)] // clamp(0, 10) ensures value is non-negative
+                {
+                    self.config.upcoming_events_count = count.clamp(0, 10) as u8;
+                }
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }
@@ -1975,12 +1986,11 @@ impl cosmic::Application for AppModel {
             Message::SetPopupJoinButton(idx) => {
                 self.config.popup_join_button = match idx {
                     0 => JoinButtonVisibility::Hide,
-                    1 => JoinButtonVisibility::Show,
                     2 => JoinButtonVisibility::ShowIfSameDay,
                     3 => JoinButtonVisibility::ShowIf30m,
                     4 => JoinButtonVisibility::ShowIf15m,
                     5 => JoinButtonVisibility::ShowIf5m,
-                    _ => JoinButtonVisibility::Show,
+                    _ => JoinButtonVisibility::Show, // 1 or any other value
                 };
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
@@ -1989,12 +1999,11 @@ impl cosmic::Application for AppModel {
             Message::SetPanelJoinButton(idx) => {
                 self.config.panel_join_button = match idx {
                     0 => JoinButtonVisibility::Hide,
-                    1 => JoinButtonVisibility::Show,
                     2 => JoinButtonVisibility::ShowIfSameDay,
                     3 => JoinButtonVisibility::ShowIf30m,
                     4 => JoinButtonVisibility::ShowIf15m,
                     5 => JoinButtonVisibility::ShowIf5m,
-                    _ => JoinButtonVisibility::Show,
+                    _ => JoinButtonVisibility::Show, // 1 or any other value
                 };
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
@@ -2054,12 +2063,11 @@ impl cosmic::Application for AppModel {
             }
             Message::SetInProgressMeeting(idx) => {
                 self.config.show_in_progress = match idx {
-                    0 => InProgressMeeting::Off,
                     1 => InProgressMeeting::Within5m,
                     2 => InProgressMeeting::Within10m,
                     3 => InProgressMeeting::Within15m,
                     4 => InProgressMeeting::Within30m,
-                    _ => InProgressMeeting::Off,
+                    _ => InProgressMeeting::Off, // 0 or any other value
                 };
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
@@ -2068,10 +2076,9 @@ impl cosmic::Application for AppModel {
             Message::SetEventStatusFilter(idx) => {
                 use crate::config::EventStatusFilter;
                 self.config.event_status_filter = match idx {
-                    0 => EventStatusFilter::All,
                     1 => EventStatusFilter::Accepted,
                     2 => EventStatusFilter::AcceptedOrTentative,
-                    _ => EventStatusFilter::All,
+                    _ => EventStatusFilter::All, // 0 or any other value
                 };
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
@@ -2139,10 +2146,9 @@ impl cosmic::Application for AppModel {
             Message::SetAutoRefreshInterval(idx) => {
                 self.config.auto_refresh_interval_minutes = match idx {
                     0 => 5,
-                    1 => 10,
                     2 => 15,
                     3 => 30,
-                    _ => 10,
+                    _ => 10, // 1 or any other value
                 };
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
