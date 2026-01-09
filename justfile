@@ -86,6 +86,8 @@ tag version: update-flatpak-sources
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{version}}"/' '{}' \; -exec git add '{}' \;
     sed -i 's/^cosmic-next-meeting ([^)]*)/cosmic-next-meeting ({{version}}-1)/' debian/changelog
     git add debian/changelog
+    sed -i '/<releases>/a\    <release version="{{version}}" date="'"$(date +%Y-%m-%d)"'">\n      <description>\n        <p>TODO: Add release notes<\/p>\n      <\/description>\n    <\/release>' resources/app.metainfo.xml
+    git add resources/app.metainfo.xml
     cargo check
     cargo clean
     git add Cargo.lock cargo-sources.json
