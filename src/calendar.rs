@@ -450,24 +450,21 @@ async fn get_meetings_from_dbus(
                     // If this is a modified instance (has RECURRENCE-ID), use it directly
                     // The DTSTART in a modified instance is the actual occurrence time
                     if recurrence_id.is_some() {
+                        let start_tzid = dtstart_prop.and_then(extract_timezone_from_prop);
                         let start_dt = dtstart_prop
                             .and_then(|p| p.value.as_ref())
-                            .and_then(|v| parse_ical_datetime(v, &now));
+                            .and_then(|v| parse_ical_datetime(v, start_tzid.as_deref()));
 
-                        let end_dt = event
-                            .properties
-                            .iter()
-                            .find(|p| p.name == "DTEND")
+                        let dtend_prop = event.properties.iter().find(|p| p.name == "DTEND");
+                        let end_tzid = dtend_prop.and_then(extract_timezone_from_prop);
+                        let end_dt = dtend_prop
                             .and_then(|p| p.value.as_ref())
-                            .and_then(|v| parse_ical_datetime(v, &now));
+                            .and_then(|v| parse_ical_datetime(v, end_tzid.as_deref()));
 
                         if let Some(start) = start_dt {
                             let end = end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
 
-                            // Include future meetings or in-progress meetings (started within 30 min)
-                            let is_future = start > now;
-                            let is_in_progress = start <= now && start > query_start && end > now;
-                            if (is_future || is_in_progress) && start < end {
+                            if should_include_meeting(start, end, now, query_start) {
                                 all_meetings.push(Meeting {
                                     uid: uid.clone(),
                                     title: title.clone(),
@@ -495,15 +492,15 @@ async fn get_meetings_from_dbus(
 
                         // Get duration from DTEND or DURATION
                         let duration = {
+                            let start_tzid = dtstart_prop.and_then(extract_timezone_from_prop);
                             let start_dt = dtstart_prop
                                 .and_then(|p| p.value.as_ref())
-                                .and_then(|v| parse_ical_datetime(v, &now));
-                            let end_dt = event
-                                .properties
-                                .iter()
-                                .find(|p| p.name == "DTEND")
+                                .and_then(|v| parse_ical_datetime(v, start_tzid.as_deref()));
+                            let dtend_prop = event.properties.iter().find(|p| p.name == "DTEND");
+                            let end_tzid = dtend_prop.and_then(extract_timezone_from_prop);
+                            let end_dt = dtend_prop
                                 .and_then(|p| p.value.as_ref())
-                                .and_then(|v| parse_ical_datetime(v, &now));
+                                .and_then(|v| parse_ical_datetime(v, end_tzid.as_deref()));
 
                             match (start_dt, end_dt) {
                                 (Some(s), Some(e)) => e.signed_duration_since(s),
@@ -533,12 +530,12 @@ async fn get_meetings_from_dbus(
                             for occurrence_start in occurrences {
                                 let occurrence_end = occurrence_start + duration;
 
-                                // Include future meetings or in-progress meetings
-                                let is_future = occurrence_start > now;
-                                let is_in_progress = occurrence_start <= now
-                                    && occurrence_start > query_start
-                                    && occurrence_end > now;
-                                if is_future || is_in_progress {
+                                if should_include_meeting(
+                                    occurrence_start,
+                                    occurrence_end,
+                                    now,
+                                    query_start,
+                                ) {
                                     all_meetings.push(Meeting {
                                         uid: format!(
                                             "{}@{}",
@@ -561,27 +558,26 @@ async fn get_meetings_from_dbus(
                     }
 
                     // Non-recurring event: use DTSTART directly
+                    let start_tzid = dtstart_prop.and_then(extract_timezone_from_prop);
                     let start_dt = dtstart_prop
                         .and_then(|p| p.value.as_ref())
-                        .and_then(|v| parse_ical_datetime(v, &now));
+                        .and_then(|v| parse_ical_datetime(v, start_tzid.as_deref()));
 
-                    let end_dt = event
+                    let dtend_prop = event
                         .properties
                         .iter()
-                        .find(|p| p.name == "DTEND" || p.name == "DURATION")
+                        .find(|p| p.name == "DTEND" || p.name == "DURATION");
+                    let end_tzid = dtend_prop.and_then(extract_timezone_from_prop);
+                    let end_dt = dtend_prop
                         .and_then(|p| p.value.as_ref())
-                        .and_then(|v| parse_ical_datetime(v, &now));
+                        .and_then(|v| parse_ical_datetime(v, end_tzid.as_deref()));
 
                     if let Some(start) = start_dt {
                         // Use end time if available, otherwise assume 1 hour duration
                         let meeting_end =
                             end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
 
-                        // Include future meetings or in-progress meetings (started within 30 min)
-                        let is_future = start > now;
-                        let is_in_progress =
-                            start <= now && start > query_start && meeting_end > now;
-                        if is_future || is_in_progress {
+                        if should_include_meeting(start, meeting_end, now, query_start) {
                             all_meetings.push(Meeting {
                                 uid,
                                 title,
@@ -889,11 +885,27 @@ fn parse_attendance_status(
     AttendanceStatus::None
 }
 
-fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<DateTime<Local>> {
+/// Determine if a meeting should be included based on its timing.
+/// Returns true if the meeting is either:
+/// - Future (starts after now)
+/// - In-progress (started within the query window and hasn't ended yet)
+/// Also validates that start < end (invalid meetings are excluded).
+fn should_include_meeting(
+    start: DateTime<Local>,
+    end: DateTime<Local>,
+    now: DateTime<Local>,
+    query_start: DateTime<Local>,
+) -> bool {
+    let is_future = start > now;
+    let is_in_progress = start <= now && start > query_start && end > now;
+    (is_future || is_in_progress) && start < end
+}
+
+fn parse_ical_datetime(value: &str, tzid: Option<&str>) -> Option<DateTime<Local>> {
     // The value might be in formats like:
     // - "20240221T123000" (local time)
     // - "20240221T123000Z" (UTC)
-    // - "TZID=America/Los_Angeles:20240221T123000" (with timezone param)
+    // - "TZID=America/Los_Angeles:20240221T123000" (with timezone param in value)
     // - "VALUE=DATE:20250527" (date only)
 
     // Extract the actual datetime value (after the last colon if present)
@@ -917,11 +929,21 @@ fn parse_ical_datetime(value: &str, _default_tz: &DateTime<Local>) -> Option<Dat
         return Some(chrono::Utc.from_utc_datetime(&naive).with_timezone(&Local));
     }
 
-    // Try parsing as YYYYMMDDTHHMMSS format (local time)
+    // Try parsing as YYYYMMDDTHHMMSS format
     if value.len() >= 15
         && value.contains('T')
         && let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S")
     {
+        // If we have a TZID, interpret the time in that timezone and convert to local
+        if let Some(tz_str) = tzid
+            && let Some(tz) = parse_ical_timezone(tz_str)
+        {
+            return tz
+                .from_local_datetime(&naive)
+                .single()
+                .map(|dt| dt.with_timezone(&Local));
+        }
+        // Otherwise treat as local time
         return Local.from_local_datetime(&naive).single();
     }
 
@@ -1199,8 +1221,7 @@ mod tests {
     // Tests for parse_ical_datetime
     #[test]
     fn test_parse_ical_datetime_local() {
-        let now = Local::now();
-        let result = parse_ical_datetime("20240221T123000", &now).unwrap();
+        let result = parse_ical_datetime("20240221T123000", None).unwrap();
         assert_eq!(result.year(), 2024);
         assert_eq!(result.month(), 2);
         assert_eq!(result.day(), 21);
@@ -1210,8 +1231,7 @@ mod tests {
 
     #[test]
     fn test_parse_ical_datetime_utc() {
-        let now = Local::now();
-        let result = parse_ical_datetime("20240221T123000Z", &now).unwrap();
+        let result = parse_ical_datetime("20240221T123000Z", None).unwrap();
         assert_eq!(result.year(), 2024);
         assert_eq!(result.month(), 2);
         assert_eq!(result.day(), 21);
@@ -1219,18 +1239,29 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ical_datetime_with_tzid() {
-        let now = Local::now();
-        let result = parse_ical_datetime("TZID=America/Los_Angeles:20240221T123000", &now).unwrap();
+    fn test_parse_ical_datetime_with_tzid_in_value() {
+        // When TZID is embedded in the value string (legacy format)
+        let result = parse_ical_datetime("TZID=America/Los_Angeles:20240221T123000", None).unwrap();
         assert_eq!(result.year(), 2024);
         assert_eq!(result.month(), 2);
         assert_eq!(result.day(), 21);
+        // Note: Without passing TZID separately, this parses as local time
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_with_tzid_param() {
+        // When TZID is passed as a separate parameter (proper handling)
+        let result = parse_ical_datetime("20240221T120000", Some("America/New_York")).unwrap();
+        // 12:00 PM Eastern should convert to local time
+        assert_eq!(result.year(), 2024);
+        assert_eq!(result.month(), 2);
+        assert_eq!(result.day(), 21);
+        // The hour depends on the local timezone, so just verify it parsed
     }
 
     #[test]
     fn test_parse_ical_datetime_date_only() {
-        let now = Local::now();
-        let result = parse_ical_datetime("20250527", &now).unwrap();
+        let result = parse_ical_datetime("20250527", None).unwrap();
         assert_eq!(result.year(), 2025);
         assert_eq!(result.month(), 5);
         assert_eq!(result.day(), 27);
@@ -1240,8 +1271,7 @@ mod tests {
 
     #[test]
     fn test_parse_ical_datetime_value_date() {
-        let now = Local::now();
-        let result = parse_ical_datetime("VALUE=DATE:20250527", &now).unwrap();
+        let result = parse_ical_datetime("VALUE=DATE:20250527", None).unwrap();
         assert_eq!(result.year(), 2025);
         assert_eq!(result.month(), 5);
         assert_eq!(result.day(), 27);
@@ -1249,9 +1279,128 @@ mod tests {
 
     #[test]
     fn test_parse_ical_datetime_invalid() {
+        assert!(parse_ical_datetime("invalid", None).is_none());
+        assert!(parse_ical_datetime("", None).is_none());
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_timezone_conversion() {
+        // Test that timezone conversion actually changes the time
+        // 12:00 UTC should be different from 12:00 local (unless you're in UTC)
+        let utc_result = parse_ical_datetime("20240601T120000Z", None).unwrap();
+        let local_result = parse_ical_datetime("20240601T120000", None).unwrap();
+
+        // UTC time should be converted to local, so if we're not in UTC,
+        // the times should differ
+        let _utc_hour = utc_result.hour();
+        let local_hour = local_result.hour();
+
+        // The local interpretation should always be 12:00 local
+        assert_eq!(local_hour, 12);
+
+        // UTC result depends on local timezone offset
+        // We can't assert exact hour, but we can verify the parsing worked
+        assert_eq!(utc_result.minute(), 0);
+        assert_eq!(local_result.minute(), 0);
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_with_known_timezone() {
+        // Test parsing with a known timezone
+        // America/New_York is UTC-5 (or UTC-4 in DST)
+        let result = parse_ical_datetime("20240115T120000", Some("America/New_York"));
+        assert!(result.is_some());
+        let dt = result.unwrap();
+        assert_eq!(dt.year(), 2024);
+        assert_eq!(dt.month(), 1);
+        assert_eq!(dt.day(), 15);
+        // Hour will be converted to local time
+    }
+
+    #[test]
+    fn test_parse_ical_datetime_unknown_timezone_fallback() {
+        // Unknown timezone should fall back to local time interpretation
+        let result = parse_ical_datetime("20240601T120000", Some("Unknown/Timezone"));
+        assert!(result.is_some());
+        let dt = result.unwrap();
+        // Should parse as local time since timezone is unknown
+        assert_eq!(dt.hour(), 12);
+    }
+
+    // Tests for should_include_meeting
+    #[test]
+    fn test_should_include_meeting_future() {
         let now = Local::now();
-        assert!(parse_ical_datetime("invalid", &now).is_none());
-        assert!(parse_ical_datetime("", &now).is_none());
+        let query_start = now - chrono::Duration::minutes(30);
+        let start = now + chrono::Duration::hours(1);
+        let end = start + chrono::Duration::hours(1);
+
+        assert!(should_include_meeting(start, end, now, query_start));
+    }
+
+    #[test]
+    fn test_should_include_meeting_past() {
+        let now = Local::now();
+        let query_start = now - chrono::Duration::minutes(30);
+        let start = now - chrono::Duration::hours(2);
+        let end = now - chrono::Duration::hours(1);
+
+        // Meeting ended in the past - should not be included
+        assert!(!should_include_meeting(start, end, now, query_start));
+    }
+
+    #[test]
+    fn test_should_include_meeting_in_progress() {
+        let now = Local::now();
+        let query_start = now - chrono::Duration::minutes(30);
+        let start = now - chrono::Duration::minutes(15); // Started 15 min ago (within 30 min window)
+        let end = now + chrono::Duration::minutes(45); // Ends in 45 min
+
+        assert!(should_include_meeting(start, end, now, query_start));
+    }
+
+    #[test]
+    fn test_should_include_meeting_in_progress_but_too_old() {
+        let now = Local::now();
+        let query_start = now - chrono::Duration::minutes(30);
+        let start = now - chrono::Duration::hours(1); // Started 1 hour ago (outside 30 min window)
+        let end = now + chrono::Duration::minutes(30); // Still ongoing
+
+        // Started before query_start, so should not be included
+        assert!(!should_include_meeting(start, end, now, query_start));
+    }
+
+    #[test]
+    fn test_should_include_meeting_invalid_end_before_start() {
+        let now = Local::now();
+        let query_start = now - chrono::Duration::minutes(30);
+        let start = now + chrono::Duration::hours(1);
+        let end = start - chrono::Duration::hours(2); // End before start - invalid
+
+        // Invalid meeting should not be included
+        assert!(!should_include_meeting(start, end, now, query_start));
+    }
+
+    #[test]
+    fn test_should_include_meeting_just_ended() {
+        let now = Local::now();
+        let query_start = now - chrono::Duration::minutes(30);
+        let start = now - chrono::Duration::minutes(15);
+        let end = now - chrono::Duration::seconds(1); // Just ended
+
+        // Meeting has ended - should not be included
+        assert!(!should_include_meeting(start, end, now, query_start));
+    }
+
+    #[test]
+    fn test_should_include_meeting_starting_now() {
+        let now = Local::now();
+        let query_start = now - chrono::Duration::minutes(30);
+        let start = now; // Starting exactly now
+        let end = now + chrono::Duration::hours(1);
+
+        // start <= now but start > query_start, end > now, so in-progress
+        assert!(should_include_meeting(start, end, now, query_start));
     }
 
     // Helper to create a test meeting
