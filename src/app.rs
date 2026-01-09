@@ -232,8 +232,7 @@ impl AppModel {
                     widget::row::with_capacity(2)
                         .push(meeting_info)
                         .push(
-                            widget::button::suggested(fl!("join"))
-                                .on_press(Message::OpenUrl(url)),
+                            widget::button::suggested(fl!("join")).on_press(Message::OpenUrl(url)),
                         )
                         .align_y(cosmic::iced::Alignment::Center)
                         .spacing(space.space_xs)
@@ -1387,7 +1386,8 @@ impl AppModel {
                     widget::button::text(fl!("report-bug"))
                         .class(cosmic::theme::Button::Link)
                         .on_press(Message::OpenUrl(
-                            "https://github.com/dangrover/next-meeting-for-cosmic/issues".to_string(),
+                            "https://github.com/dangrover/next-meeting-for-cosmic/issues"
+                                .to_string(),
                         )),
                 ),
         );
@@ -1684,8 +1684,8 @@ impl cosmic::Application for AppModel {
         };
 
         // Main panel button with meeting text
-        let constrained_content = widget::container(panel_content)
-            .padding([space.space_none, space.space_xs]);
+        let constrained_content =
+            widget::container(panel_content).padding([space.space_none, space.space_xs]);
         let main_button = widget::button::custom(constrained_content)
             .class(cosmic::theme::Button::AppletIcon)
             .on_press(Message::TogglePopup);
