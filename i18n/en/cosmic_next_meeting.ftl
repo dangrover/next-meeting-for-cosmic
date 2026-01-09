@@ -8,15 +8,18 @@ back = Back
 next-meeting = Next meeting
 upcoming = Upcoming
 calendars-section = Calendars
-calendars-enabled = { $enabled }/{ $total }
+calendars-enabled = { $enabled }/{ $total } enabled
 calendars-none = Not configured
 display-format-section = Next meeting time
 display-format-day-time = Day & time
 display-format-relative = Relative time
 upcoming-events-section = Show additional meetings
 join = Join
-join-button-section = "Join" button
+join-button-section = Join button
+join-button-visibility = Visibility
 join-button-description = When enabled, a "Join" button will appear for meetings with a detected video call URL.
+formatting-section = Formatting
+url-patterns-description = Regex patterns used to detect video call URLs in meeting descriptions and locations. These patterns apply to the Join button in both the panel and dropdown.
 panel-join-button = In panel
 popup-join-button = In popup
 join-hide = Hide
@@ -80,9 +83,14 @@ additional-emails-summary = { $count ->
 }
 add-email = Add email
 filter-events-description = Filter which calendar events are shown based on event properties or your attendance status.
+panel-display = Panel
+dropdown-display = Dropdown
+configure = Configure...
 about = About
 version = Version { $version }
 author = by { $author }
+website = Website
+report-bug = Report bug
 no-calendars = No calendars
 no-calendars-description = Configure a calendar account using GNOME Online Accounts or a calendar app like Evolution.
 refresh-section = Syncing
@@ -96,7 +104,10 @@ refresh-interval-15m = Every 15 minutes
 refresh-interval-30m = Every 30 minutes
 refresh-summary-on = Every { $interval }m
 refresh-summary-off = Manual only
-refresh-description = This applet reads cached calendar data from Evolution Data Server (EDS), which can sync with online calendars. Calendar apps like Evolution and GNOME calendar will trigger EDS to sync. If this setting is enabled, the applet will also automatically trigger EDS to sync with the cloud. If you use another solution, or if you only use a local calendar, this may be redundant. 
+refresh-description =
+    This applet reads cached calendar data from Evolution Data Server (EDS), which can sync with online calendars. Calendar apps like Evolution and GNOME calendar will trigger EDS to sync.
+
+    If this setting is enabled, the applet will also automatically trigger EDS to sync with the cloud. If you use another solution, or if you only use a local calendar, this may be redundant. 
 updated-unknown = Updated: unknown
 updated-just-now = Updated just now
 updated-minutes-ago = Updated { $minutes }m ago

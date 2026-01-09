@@ -35,24 +35,6 @@ pub enum JoinButtonVisibility {
     ShowIf5m,
 }
 
-/// When to show the physical location
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
-pub enum LocationVisibility {
-    /// Never show location
-    Hide,
-    /// Always show location (when available)
-    #[default]
-    Show,
-    /// Show location only when meeting is same day
-    ShowIfSameDay,
-    /// Show location only when meeting is within 30 minutes
-    ShowIf30m,
-    /// Show location only when meeting is within 15 minutes
-    ShowIf15m,
-    /// Show location only when meeting is within 5 minutes
-    ShowIf5m,
-}
-
 /// Which events to show based on attendance status
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum EventStatusFilter {
@@ -99,10 +81,10 @@ pub struct Config {
     pub popup_join_button: JoinButtonVisibility,
     /// When to show the Join button in the panel.
     pub panel_join_button: JoinButtonVisibility,
-    /// When to show the physical location in the popup.
-    pub popup_location: LocationVisibility,
-    /// When to show the physical location in the panel.
-    pub panel_location: LocationVisibility,
+    /// Whether to show the physical location in the popup.
+    pub popup_show_location: bool,
+    /// Whether to show the physical location in the panel.
+    pub panel_show_location: bool,
     /// Show calendar color indicator in panel.
     pub panel_calendar_indicator: bool,
     /// Show calendar color indicator in popup.
@@ -130,8 +112,8 @@ impl Default for Config {
             upcoming_events_count: 3,
             popup_join_button: JoinButtonVisibility::ShowIfSameDay,
             panel_join_button: JoinButtonVisibility::ShowIf15m,
-            popup_location: LocationVisibility::default(),
-            panel_location: LocationVisibility::default(),
+            popup_show_location: false,
+            panel_show_location: false,
             panel_calendar_indicator: false,
             popup_calendar_indicator: true,
             meeting_url_patterns: vec![

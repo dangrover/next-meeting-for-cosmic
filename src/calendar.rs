@@ -889,6 +889,7 @@ fn parse_attendance_status(
 /// Returns true if the meeting is either:
 /// - Future (starts after now)
 /// - In-progress (started within the query window and hasn't ended yet)
+///
 /// Also validates that start < end (invalid meetings are excluded).
 fn should_include_meeting(
     start: DateTime<Local>,

@@ -51,9 +51,21 @@ run *args:
 # Build, install, and reload applet for quick dev iteration
 dev: build-release install reload-applet
 
-# Reload applet by restarting panel
+# Reload applet by restarting panel (system auto-restarts it)
 reload-applet:
-    killall cosmic-panel || true; cosmic-panel &
+    #!/usr/bin/env bash
+    echo "Restarting panel..."
+    pkill -TERM cosmic-panel 2>/dev/null || true
+    # Wait for panel to restart (cosmic-session should restart it)
+    for i in {1..10}; do
+        sleep 0.5
+        if pgrep -x cosmic-panel >/dev/null 2>&1; then
+            echo "Panel restarted successfully."
+            exit 0
+        fi
+    done
+    echo "Panel did not restart within 5 seconds."
+    echo "Try: Log out and back in, or run 'cosmic-panel &' manually."
 
 # Installs files
 install:

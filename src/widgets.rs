@@ -88,6 +88,88 @@ pub fn featured_button_style() -> cosmic::theme::Button {
     }
 }
 
+/// Creates a settings page header with back button and title
+pub fn settings_page_header<'a, M: Clone + 'static>(
+    back_label: String,
+    title: String,
+    back_message: M,
+) -> Element<'a, M> {
+    let space = spacing();
+    widget::column::with_capacity(2)
+        .push(
+            widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                .extra_small()
+                .padding(space.space_none)
+                .label(back_label)
+                .spacing(space.space_xxxs)
+                .class(cosmic::theme::Button::Link)
+                .on_press(back_message),
+        )
+        .push(widget::text::title4(title))
+        .spacing(space.space_xxs)
+        .into()
+}
+
+/// Creates a navigation row with label, summary and chevron (no hover, normal colors)
+pub fn settings_nav_row<'a, M: Clone + 'static>(
+    label: String,
+    summary: String,
+    nav_message: M,
+) -> Element<'a, M> {
+    let space = spacing();
+    widget::button::custom(
+        widget::container(
+            widget::row::with_capacity(4)
+                .push(widget::text::body(label))
+                .push(widget::horizontal_space())
+                .push(widget::text::body(summary))
+                .push(widget::icon::from_name("go-next-symbolic").size(16).icon())
+                .spacing(space.space_s)
+                .align_y(cosmic::iced::Alignment::Center)
+                .width(Length::Fill),
+        )
+        .class(cosmic::theme::Container::List),
+    )
+    .padding(0)
+    .class(cosmic::theme::Button::Transparent)
+    .width(Length::Fill)
+    .on_press(nav_message)
+    .into()
+}
+
+/// Creates a navigation row with icon, label, summary, and chevron (normal colors)
+pub fn settings_nav_row_with_icon<'a, M: Clone + 'static>(
+    icon_name: &'static str,
+    label: String,
+    summary: String,
+    nav_message: M,
+) -> Element<'a, M> {
+    let space = spacing();
+    widget::button::custom(
+        widget::container(
+            widget::row::with_capacity(5)
+                .push(
+                    widget::icon::from_name(icon_name)
+                        .size(space.space_s)
+                        .symbolic(true),
+                )
+                .push(widget::text::body(label))
+                .push(widget::horizontal_space())
+                .push(widget::text::body(summary))
+                .push(widget::icon::from_name("go-next-symbolic").size(16).icon())
+                .spacing(space.space_s)
+                .align_y(cosmic::iced::Alignment::Center)
+                .width(Length::Fill),
+        )
+        .class(cosmic::theme::Container::List),
+    )
+    .padding(0)
+    .class(cosmic::theme::Button::Transparent)
+    .width(Length::Fill)
+    .on_press(nav_message)
+    .into()
+}
+
 /// Create a calendar color indicator dot widget with optional tooltip showing calendar name
 pub fn calendar_color_dot<'a, M: 'a>(
     calendar_uid: &str,
