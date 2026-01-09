@@ -13,7 +13,7 @@ use crate::widgets::{
     spacing,
 };
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
-use cosmic::iced::{Length, Limits, Subscription, window::Id};
+use cosmic::iced::{Length, Limits, Subscription, clipboard, window::Id};
 use cosmic::iced_winit::commands::popup::{destroy_popup, get_popup};
 use cosmic::prelude::*;
 use cosmic::widget;
@@ -57,6 +57,7 @@ pub enum PopupPage {
     PopupDisplaySettings,
     PanelJoinButtonSettings,
     PopupJoinButtonSettings,
+    KeyboardShortcut,
     About,
 }
 
@@ -502,6 +503,19 @@ impl AppModel {
             ));
 
         content = content.push(display_section);
+        content = content.push(widget::vertical_space().height(space.space_xs));
+
+        // ===== KEYBOARD SHORTCUT SECTION =====
+        let shortcut_section = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
+            .add(settings_nav_row_with_icon(
+                "input-keyboard-symbolic",
+                fl!("keyboard-shortcut"),
+                String::new(),
+                Message::Navigate(PopupPage::KeyboardShortcut),
+            ));
+
+        content = content.push(shortcut_section);
         content = content.push(widget::vertical_space().height(space.space_xs));
 
         // ===== ABOUT SECTION =====
@@ -1323,6 +1337,73 @@ impl AppModel {
         content.into()
     }
 
+    /// Keyboard shortcut setup page
+    #[allow(clippy::unused_self)]
+    fn view_keyboard_shortcut_page(&self) -> Element<'_, Message> {
+        let space = spacing();
+
+        let mut content = widget::column::with_capacity(8)
+            .padding(space.space_xs)
+            .spacing(space.space_xs)
+            .width(Length::Fill);
+
+        // Back button header
+        content = content.push(settings_page_header(
+            fl!("settings"),
+            fl!("keyboard-shortcut"),
+            Message::Navigate(PopupPage::Settings),
+        ));
+
+        // Description
+        content = content.push(widget::text::body(fl!("keyboard-shortcut-description")));
+
+        content = content.push(widget::vertical_space().height(space.space_xxs));
+
+        // Instructions (second paragraph)
+        content = content.push(widget::text::body(fl!("keyboard-shortcut-instructions")));
+
+        content = content.push(widget::vertical_space().height(space.space_xs));
+
+        // Command in a styled container (read-only text input for selectability)
+        let command: &'static str = "cosmic-next-meeting --join-next";
+        content = content.push(
+            widget::container(
+                widget::row::with_capacity(2)
+                    .spacing(space.space_s)
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .push(
+                        widget::text_input("", command)
+                            .on_input(|_| Message::Noop)
+                            .font(cosmic::iced::Font::MONOSPACE)
+                            .width(Length::Fill),
+                    )
+                    .push(
+                        widget::button::text(fl!("keyboard-shortcut-copy"))
+                            .class(cosmic::theme::Button::Standard)
+                            .on_press(Message::CopyToClipboard(command.to_string())),
+                    ),
+            )
+            .padding(space.space_s)
+            .class(cosmic::theme::Container::List),
+        );
+
+        content = content.push(widget::vertical_space().height(space.space_s));
+
+        // Open Settings button
+        content = content.push(
+            widget::container(
+                widget::button::standard(fl!("keyboard-shortcut-open-settings"))
+                    .on_press(Message::OpenCosmicSettings),
+            )
+            .width(Length::Fill)
+            .align_x(cosmic::iced::alignment::Horizontal::Center),
+        );
+
+        content = content.push(widget::vertical_space().height(space.space_m));
+
+        content.into()
+    }
+
     /// About page with app info
     #[allow(clippy::unused_self)]
     fn view_about_page(&self) -> Element<'_, Message> {
@@ -1400,9 +1481,13 @@ impl AppModel {
     }
 }
 
-/// Open a URL in the default browser
-fn open_url(url: &str) {
-    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+/// Open a URL in the default browser.
+/// Returns true if the command was spawned successfully.
+pub fn open_url(url: &str) -> bool {
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .is_ok()
 }
 
 /// Open an event in the user's default calendar application.
@@ -1462,6 +1547,7 @@ pub enum Message {
     OpenCalendar,
     OpenEvent(String),
     OpenUrl(String),
+    CopyToClipboard(String),
     SetPopupJoinButton(usize),
     SetPanelJoinButton(usize),
     SetPopupShowLocation(bool),
@@ -1482,6 +1568,8 @@ pub enum Message {
     SetAutoRefresh(bool),
     SetAutoRefreshInterval(usize),
     CalendarChanged,
+    OpenCosmicSettings,
+    Noop,
 }
 
 /// Create a COSMIC application from the app model
@@ -1752,6 +1840,7 @@ impl cosmic::Application for AppModel {
             PopupPage::PopupDisplaySettings => self.view_popup_display_settings_page(),
             PopupPage::PanelJoinButtonSettings => self.view_panel_join_button_settings_page(),
             PopupPage::PopupJoinButtonSettings => self.view_popup_join_button_settings_page(),
+            PopupPage::KeyboardShortcut => self.view_keyboard_shortcut_page(),
             PopupPage::About => self.view_about_page(),
         };
 
@@ -2009,6 +2098,9 @@ impl cosmic::Application for AppModel {
                 // Open the meeting URL using freedesktop portal (preferred) or xdg-open fallback
                 open_url(&url);
             }
+            Message::CopyToClipboard(text) => {
+                return clipboard::write(text);
+            }
             Message::SetPopupJoinButton(idx) => {
                 self.config.popup_join_button = match idx {
                     0 => JoinButtonVisibility::Hide,
@@ -2180,6 +2272,12 @@ impl cosmic::Application for AppModel {
                     let _ = self.config.write_entry(ctx);
                 }
             }
+            Message::OpenCosmicSettings => {
+                let _ = std::process::Command::new("cosmic-settings")
+                    .arg("keyboard")
+                    .spawn();
+            }
+            Message::Noop => {}
             Message::CalendarChanged => {
                 // A calendar was updated via D-Bus signal (sync completed)
                 // Refresh both calendars list (for updated sync timestamps) and meetings
