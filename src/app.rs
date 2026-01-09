@@ -1422,16 +1422,28 @@ fn open_event_in_calendar(event_uid: &str) {
     }
 
     // Check if it's GNOME Calendar (supports --uuid flag)
-    if desktop_file.contains("gnome-calendar") {
+    // Handle both "gnome-calendar" and "org.gnome.Calendar" naming conventions
+    let lowercase = desktop_file.to_lowercase();
+    if lowercase.contains("gnome-calendar") || lowercase.contains("gnome.calendar") {
         let _ = std::process::Command::new("gnome-calendar")
             .arg("--uuid")
             .arg(event_uid)
             .spawn();
     } else {
-        // For other calendar apps, use gtk-launch which finds desktop files by name
-        let _ = std::process::Command::new("gtk-launch")
+        // For other calendar apps, try gtk-launch first, then fall back to gio
+        let gtk_result = std::process::Command::new("gtk-launch")
             .arg(&desktop_file)
             .spawn();
+
+        if gtk_result.is_err() {
+            let xdg_dirs = xdg::BaseDirectories::new();
+            if let Some(path) = xdg_dirs.find_data_file(format!("applications/{desktop_file}")) {
+                let path_str = path.to_string_lossy();
+                let _ = std::process::Command::new("gio")
+                    .args(["launch", path_str.as_ref()])
+                    .spawn();
+            }
+        }
     }
 }
 
@@ -1963,16 +1975,30 @@ impl cosmic::Application for AppModel {
                 self.current_page = page;
             }
             Message::OpenCalendar => {
-                // Query the default calendar application and launch it using gtk-launch
+                // Query the default calendar application and launch it
                 if let Ok(output) = std::process::Command::new("xdg-mime")
                     .args(["query", "default", "text/calendar"])
                     .output()
                 {
                     let desktop_file = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if !desktop_file.is_empty() {
-                        let _ = std::process::Command::new("gtk-launch")
+                        // Try gtk-launch first (works on GTK-based systems)
+                        let gtk_result = std::process::Command::new("gtk-launch")
                             .arg(&desktop_file)
                             .spawn();
+
+                        // Fall back to gio launch with full path (for non-GTK systems like COSMIC)
+                        if gtk_result.is_err() {
+                            let xdg_dirs = xdg::BaseDirectories::new();
+                            if let Some(path) =
+                                xdg_dirs.find_data_file(format!("applications/{desktop_file}"))
+                            {
+                                let path_str = path.to_string_lossy();
+                                let _ = std::process::Command::new("gio")
+                                    .args(["launch", path_str.as_ref()])
+                                    .spawn();
+                            }
+                        }
                     }
                 }
             }
