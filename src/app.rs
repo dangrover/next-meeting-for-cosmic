@@ -192,27 +192,9 @@ impl AppModel {
             let next_meeting_uid = meeting.uid.clone();
             let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
 
-            // Build title row with optional calendar indicator
-            let title_row = if self.config.popup_calendar_indicator {
-                let mut row = widget::row::with_capacity(2)
-                    .spacing(space.space_xxs)
-                    .align_y(cosmic::iced::Alignment::Center);
-                if let Some(dot) = calendar_color_dot::<Message>(
-                    &meeting.calendar_uid,
-                    &self.available_calendars,
-                    10.0,
-                    Some(widget::tooltip::Position::Top),
-                ) {
-                    row = row.push(dot);
-                }
-                row.push(widget::text::title4(&meeting.title))
-            } else {
-                widget::row::with_capacity(1).push(widget::text::title4(&meeting.title))
-            };
-
             // Build meeting info column with title, time, and optional location
             let mut meeting_column = widget::column::with_capacity(3)
-                .push(title_row)
+                .push(widget::text::title4(&meeting.title))
                 .push(widget::text::body(time_str).class(secondary_text))
                 .spacing(space.space_xxxs)
                 .width(Length::Fill);
@@ -222,7 +204,27 @@ impl AppModel {
                     meeting_column.push(widget::text::body(location).class(secondary_text));
             }
 
-            let meeting_info = widget::button::custom(meeting_column)
+            // Wrap column in row with optional calendar indicator dot (centered vertically)
+            let meeting_content: cosmic::Element<'_, Message> =
+                if self.config.popup_calendar_indicator {
+                    let mut row = widget::row::with_capacity(2)
+                        .spacing(space.space_s)
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill);
+                    if let Some(dot) = calendar_color_dot::<Message>(
+                        &meeting.calendar_uid,
+                        &self.available_calendars,
+                        10.0,
+                        Some(widget::tooltip::Position::Top),
+                    ) {
+                        row = row.push(dot);
+                    }
+                    row.push(meeting_column).into()
+                } else {
+                    meeting_column.into()
+                };
+
+            let meeting_info = widget::button::custom(meeting_content)
                 .class(featured_button_style())
                 .padding([space.space_xxs, space.space_xs])
                 .width(Length::Fill)
@@ -299,7 +301,7 @@ impl AppModel {
                     // Build row with optional calendar indicator
                     let mut row = widget::row::with_capacity(4)
                         .spacing(space.space_xs)
-                        .align_y(cosmic::iced::Alignment::Start)
+                        .align_y(cosmic::iced::Alignment::Center)
                         .width(Length::Fill);
 
                     if self.config.popup_calendar_indicator
@@ -1302,7 +1304,7 @@ impl AppModel {
 
         content = content.push(refresh_settings);
 
-        // Sync manually button (centered, standard size)
+        // Force sync manually button (centered, standard size)
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_xs));
 
@@ -1851,8 +1853,8 @@ impl cosmic::Application for AppModel {
 
         // Popup size limits
         let limits = Limits::NONE
-            .max_width(400.0)
-            .min_width(400.0)
+            .max_width(420.0)
+            .min_width(420.0)
             .min_height(200.0)
             .max_height(800.0);
 
