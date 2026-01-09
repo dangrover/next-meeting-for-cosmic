@@ -1562,7 +1562,7 @@ fn open_event_in_calendar(event_uid: &str) {
             .arg(event_uid)
             .spawn();
     } else {
-        // For other calendar apps, just open the app
+        // For other calendar apps, use gtk-launch which finds desktop files by name
         let _ = std::process::Command::new("gtk-launch")
             .arg(&desktop_file)
             .spawn();
@@ -2094,7 +2094,6 @@ impl cosmic::Application for AppModel {
                 {
                     let desktop_file = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if !desktop_file.is_empty() {
-                        // gtk-launch works with just the desktop file name (without .desktop suffix too)
                         let _ = std::process::Command::new("gtk-launch")
                             .arg(&desktop_file)
                             .spawn();
