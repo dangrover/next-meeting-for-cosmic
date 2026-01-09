@@ -118,13 +118,35 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Extract release notes from metainfo
+        id: release_notes
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Extract the description content for this version from metainfo XML
+          # Uses xmllint to get the release node, then formats the HTML content
+          NOTES=$(xmllint --xpath "//release[@version='${VERSION}']/description/*" resources/app.metainfo.xml 2>/dev/null | \
+            sed 's/<p>/\n/g; s/<\/p>//g; s/<ul>/\n/g; s/<\/ul>//g; s/<li>/- /g; s/<\/li>//g' | \
+            sed '/^$/d' | \
+            sed 's/^[[:space:]]*//')
+
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${VERSION}"
+          fi
+
+          # Use heredoc for multiline output
+          {
+            echo "NOTES<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           name: Release ${{ steps.version.outputs.VERSION }}
+          body: ${{ steps.release_notes.outputs.NOTES }}
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-          generate_release_notes: true
           files: |
             artifacts/*.deb
             artifacts/*.flatpak
