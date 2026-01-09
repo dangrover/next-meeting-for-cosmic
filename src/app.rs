@@ -291,18 +291,13 @@ impl AppModel {
 
                 let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
                 for meeting in filtered.iter().skip(1).take(upcoming_count) {
-                    let title = if meeting.title.len() > 25 {
-                        format!("{}...", &meeting.title[..22])
-                    } else {
-                        meeting.title.clone()
-                    };
                     let time_str = format_time(&meeting.start, false);
                     let uid = meeting.uid.clone();
 
                     // Build row with optional calendar indicator
                     let mut row = widget::row::with_capacity(4)
                         .spacing(space.space_xs)
-                        .align_y(cosmic::iced::Alignment::Center)
+                        .align_y(cosmic::iced::Alignment::Start)
                         .width(Length::Fill);
 
                     if self.config.popup_calendar_indicator
@@ -316,9 +311,12 @@ impl AppModel {
                         row = row.push(dot);
                     }
 
+                    // Title takes available space, time shrinks to fit
                     row = row
-                        .push(widget::text::body(title))
-                        .push(widget::horizontal_space())
+                        .push(
+                            widget::container(widget::text::body(&meeting.title))
+                                .width(Length::Fill),
+                        )
                         .push(widget::text::body(time_str).class(secondary_text));
 
                     content = content
