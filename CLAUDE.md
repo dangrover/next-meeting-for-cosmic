@@ -9,6 +9,36 @@ Meeting is a COSMIC desktop applet that displays the next upcoming meeting in th
 - **Language**: Rust (Edition 2024)
 - **Framework**: libcosmic (Pop!_OS COSMIC desktop)
 - **App ID**: `com.dangrover.next-meeting-app`
+- **Distribution**: Native packages and Flatpak
+
+## Compatibility
+
+This app targets all Linux distributions running COSMIC DE, not just Pop!_OS. Keep these considerations in mind:
+
+### Multi-Distro Support
+- **systemd**: Most features assume systemd (e.g., `org.freedesktop.login1` for sleep/wake detection). Always implement graceful fallbacks for non-systemd distros.
+- **D-Bus services**: Don't assume specific D-Bus services are available. Check for availability and degrade gracefully.
+- **File paths**: Use XDG base directories, not hardcoded paths.
+
+### Flatpak Compatibility
+- **Sandbox restrictions**: Flatpak apps are sandboxed. Any new D-Bus access requires updating `com.dangrover.next-meeting-app.json`:
+  - Session bus: `--talk-name=org.example.Service`
+  - System bus: `--system-talk-name=org.example.Service`
+- **Filesystem access**: Limited to declared paths. Currently has read-only access to `~/.config/cosmic` and `~/.config/evolution`.
+- **Test both**: Features must work in both native installs and Flatpak. If a capability isn't available in Flatpak, implement a fallback.
+
+### D-Bus Permissions
+
+The app uses these D-Bus services (declared in `com.dangrover.next-meeting-app.json`):
+
+| Service | Bus | Purpose |
+|---------|-----|---------|
+| `org.gnome.evolution.dataserver.Calendar8` | Session | Read calendar events from EDS |
+| `org.gnome.evolution.dataserver.Sources5` | Session | List available calendar sources |
+| `org.gnome.OnlineAccounts` | Session | Access GNOME Online Accounts integration |
+| `org.freedesktop.login1` | System | Detect system wake and session unlock to refresh events immediately |
+
+The `login1` permission allows the app to listen for `PrepareForSleep` and session `Unlock` signals, so calendar data refreshes as soon as the user returns to their computer (after sleep or screen lock). This provides a better experience than waiting for the next polling interval.
 
 ## Build Commands
 
@@ -83,7 +113,7 @@ This project uses `clippy::pedantic` warnings. Run `just check` before committin
 - **Format strings**: Use inlined variables: `format!("{foo}")` not `format!("{}", foo)`
 - **Option chains**: Use `.cloned()` instead of `.map(String::clone)` or `.map(|s| s.to_string())`
 - **Option fallbacks**: Use `.map_or_else(default_fn, transform_fn)` instead of `.map(f).unwrap_or_else(g)`
-- **Boolean checks**: Use `.is_some_and(predicate)` instead of `.map(predicate).unwrap_or(false)`
+- **Boolean checks**: Use `.is_some_and(predicate)` or `.is_ok_and(predicate)` instead of nested if-let with if, or `.map(predicate).unwrap_or(false)`
 - **Let-else**: Use `let Ok(x) = expr else { return; }` instead of `match expr { Ok(x) => x, Err(_) => return }`
 - **Match arms**: Merge arms with identical bodies; put wildcard pattern last
 - **Doc comments**: Use backticks around identifiers in doc comments (e.g., `` `CalendarInfo` ``)

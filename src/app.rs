@@ -1575,6 +1575,8 @@ pub enum Message {
     SetAutoRefresh(bool),
     SetAutoRefreshInterval(usize),
     CalendarChanged,
+    /// System resumed from sleep or session was unlocked
+    SystemResumed,
     OpenCosmicSettings,
     Noop,
 }
@@ -1966,6 +1968,26 @@ impl cosmic::Application for AppModel {
             }),
         ));
 
+        // Watch for system resume (from sleep) and session unlock events
+        // Uses org.freedesktop.login1 on the system bus; fails gracefully on non-systemd systems
+        subscriptions.push(Subscription::run_with_id(
+            "system-resume",
+            cosmic::iced::stream::channel(2, move |mut channel| async move {
+                let (sender, mut receiver) = tokio::sync::mpsc::channel::<()>(2);
+
+                // Spawn the watcher in a separate task
+                let watch_task = tokio::spawn(crate::calendar::watch_system_resume(sender));
+
+                // Forward messages from the watcher to the iced channel
+                while receiver.recv().await.is_some() {
+                    let _ = channel.send(Message::SystemResumed).await;
+                }
+
+                // Clean up if the watcher exits
+                watch_task.abort();
+            }),
+        ));
+
         Subscription::batch(subscriptions)
     }
 
@@ -2310,6 +2332,47 @@ impl cosmic::Application for AppModel {
                 );
 
                 return Task::batch([calendars_task, meetings_task]);
+            }
+            Message::SystemResumed => {
+                // System woke from sleep or session was unlocked
+                // Refresh immediately to show current data, and optionally trigger EDS sync
+                let enabled_uids = self.enabled_meeting_source_uids();
+                let upcoming_count = self.config.upcoming_events_count as usize;
+                let additional_emails = self.config.additional_emails.clone();
+
+                let mut tasks = vec![];
+
+                // If auto-refresh is enabled, tell EDS to fetch fresh data from remote servers
+                // The CalendarChanged handler will fire again when EDS finishes syncing
+                if self.config.auto_refresh_enabled {
+                    let refresh_uids = enabled_uids.clone();
+                    tasks.push(Task::perform(
+                        async move {
+                            crate::calendar::refresh_calendars(&refresh_uids).await;
+                        },
+                        |()| Message::Noop.into(),
+                    ));
+                }
+
+                // Also immediately refresh local data so we show what's cached
+                tasks.push(Task::perform(
+                    async { crate::calendar::get_available_calendars().await },
+                    |calendars| Message::CalendarsLoaded(calendars).into(),
+                ));
+
+                tasks.push(Task::perform(
+                    async move {
+                        crate::calendar::get_upcoming_meetings(
+                            &enabled_uids,
+                            upcoming_count + 1,
+                            &additional_emails,
+                        )
+                        .await
+                    },
+                    |meetings| Message::MeetingsUpdated(meetings).into(),
+                ));
+
+                return Task::batch(tasks);
             }
             Message::TogglePopup => {
                 return if let Some(p) = self.popup.take() {

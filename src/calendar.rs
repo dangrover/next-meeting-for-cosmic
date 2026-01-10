@@ -106,7 +106,7 @@ pub async fn refresh_calendars(enabled_uids: &[String]) {
     };
 
     // Refresh each calendar
-    for source_uid in source_uids {
+    for source_uid in &source_uids {
         // Open the calendar
         let (calendar_path, bus_name): (String, String) = match calendar_factory_proxy
             .call_method("OpenCalendar", &(source_uid.as_str(),))
@@ -231,6 +231,118 @@ async fn watch_single_calendar(
     };
 
     // Listen for signals and notify the channel
+    while stream.next().await.is_some() {
+        let _ = sender.try_send(());
+    }
+}
+
+/// Watch for system resume (from sleep) and session unlock events via D-Bus.
+/// Uses `org.freedesktop.login1` on the system bus.
+/// Sends to the channel when:
+/// - System wakes from suspend (`PrepareForSleep` signal with `false`)
+/// - Session is unlocked (`Unlock` signal or `LockedHint` becomes `false`)
+///
+/// Fails gracefully on non-systemd systems or when D-Bus access is unavailable.
+pub async fn watch_system_resume(sender: tokio::sync::mpsc::Sender<()>) {
+    // Connect to system bus (not session bus)
+    let Ok(conn) = Connection::system().await else {
+        return;
+    };
+
+    // Spawn watchers for both signals concurrently
+    let sender_clone = sender.clone();
+    let conn_clone = conn.clone();
+
+    let sleep_handle = tokio::spawn(async move {
+        watch_prepare_for_sleep(conn_clone, sender_clone).await;
+    });
+
+    let unlock_handle = tokio::spawn(async move {
+        watch_session_unlock(conn, sender).await;
+    });
+
+    // Wait for both (they run indefinitely until cancelled)
+    let _ = tokio::join!(sleep_handle, unlock_handle);
+}
+
+/// Watch for `PrepareForSleep` signal from logind.
+/// Fires when system wakes from suspend (signal argument is `false`).
+async fn watch_prepare_for_sleep(conn: Connection, sender: tokio::sync::mpsc::Sender<()>) {
+    // Create proxy for login1 Manager
+    let Ok(proxy) = zbus::Proxy::new(
+        &conn,
+        "org.freedesktop.login1",
+        "/org/freedesktop/login1",
+        "org.freedesktop.login1.Manager",
+    )
+    .await
+    else {
+        return;
+    };
+
+    // Subscribe to PrepareForSleep signal
+    let Ok(mut stream) = proxy.receive_signal("PrepareForSleep").await else {
+        return;
+    };
+
+    // Listen for signals
+    while let Some(signal) = stream.next().await {
+        // PrepareForSleep has a boolean argument: true = going to sleep, false = waking up
+        if signal
+            .body::<bool>()
+            .is_ok_and(|going_to_sleep| !going_to_sleep)
+        {
+            // System just woke up
+            let _ = sender.try_send(());
+        }
+    }
+}
+
+/// Watch for session unlock events from logind.
+/// Listens for the `Unlock` signal on the current session.
+async fn watch_session_unlock(conn: Connection, sender: tokio::sync::mpsc::Sender<()>) {
+    // First, get the current session path
+    let Ok(manager_proxy) = zbus::Proxy::new(
+        &conn,
+        "org.freedesktop.login1",
+        "/org/freedesktop/login1",
+        "org.freedesktop.login1.Manager",
+    )
+    .await
+    else {
+        return;
+    };
+
+    // Get our session object path
+    let session_path: String = match manager_proxy
+        .call_method("GetSessionByPID", &(std::process::id(),))
+        .await
+    {
+        Ok(reply) => match reply.body::<zvariant::OwnedObjectPath>() {
+            Ok(path) => path.to_string(),
+            Err(_) => return,
+        },
+        Err(_) => return,
+    };
+
+    // Create proxy for our session
+    let Ok(session_proxy) = zbus::Proxy::new(
+        &conn,
+        "org.freedesktop.login1",
+        session_path.as_str(),
+        "org.freedesktop.login1.Session",
+    )
+    .await
+    else {
+        return;
+    };
+
+    // Subscribe to Unlock signal
+    let Ok(mut stream) = session_proxy.receive_signal("Unlock").await else {
+        return;
+    };
+
+    // Listen for unlock signals
     while stream.next().await.is_some() {
         let _ = sender.try_send(());
     }
