@@ -13,7 +13,7 @@ use crate::widgets::{
     spacing,
 };
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
-use cosmic::iced::{Length, Limits, Subscription, window::Id};
+use cosmic::iced::{Length, Limits, Subscription, clipboard, window::Id};
 use cosmic::iced_winit::commands::popup::{destroy_popup, get_popup};
 use cosmic::prelude::*;
 use cosmic::widget;
@@ -57,6 +57,7 @@ pub enum PopupPage {
     PopupDisplaySettings,
     PanelJoinButtonSettings,
     PopupJoinButtonSettings,
+    KeyboardShortcut,
     About,
 }
 
@@ -191,27 +192,9 @@ impl AppModel {
             let next_meeting_uid = meeting.uid.clone();
             let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
 
-            // Build title row with optional calendar indicator
-            let title_row = if self.config.popup_calendar_indicator {
-                let mut row = widget::row::with_capacity(2)
-                    .spacing(space.space_xxs)
-                    .align_y(cosmic::iced::Alignment::Center);
-                if let Some(dot) = calendar_color_dot::<Message>(
-                    &meeting.calendar_uid,
-                    &self.available_calendars,
-                    10.0,
-                    Some(widget::tooltip::Position::Top),
-                ) {
-                    row = row.push(dot);
-                }
-                row.push(widget::text::title4(&meeting.title))
-            } else {
-                widget::row::with_capacity(1).push(widget::text::title4(&meeting.title))
-            };
-
             // Build meeting info column with title, time, and optional location
             let mut meeting_column = widget::column::with_capacity(3)
-                .push(title_row)
+                .push(widget::text::title4(&meeting.title))
                 .push(widget::text::body(time_str).class(secondary_text))
                 .spacing(space.space_xxxs)
                 .width(Length::Fill);
@@ -221,7 +204,27 @@ impl AppModel {
                     meeting_column.push(widget::text::body(location).class(secondary_text));
             }
 
-            let meeting_info = widget::button::custom(meeting_column)
+            // Wrap column in row with optional calendar indicator dot (centered vertically)
+            let meeting_content: cosmic::Element<'_, Message> =
+                if self.config.popup_calendar_indicator {
+                    let mut row = widget::row::with_capacity(2)
+                        .spacing(space.space_s)
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill);
+                    if let Some(dot) = calendar_color_dot::<Message>(
+                        &meeting.calendar_uid,
+                        &self.available_calendars,
+                        10.0,
+                        Some(widget::tooltip::Position::Top),
+                    ) {
+                        row = row.push(dot);
+                    }
+                    row.push(meeting_column).into()
+                } else {
+                    meeting_column.into()
+                };
+
+            let meeting_info = widget::button::custom(meeting_content)
                 .class(featured_button_style())
                 .padding([space.space_xxs, space.space_xs])
                 .width(Length::Fill)
@@ -298,7 +301,7 @@ impl AppModel {
                     // Build row with optional calendar indicator
                     let mut row = widget::row::with_capacity(4)
                         .spacing(space.space_xs)
-                        .align_y(cosmic::iced::Alignment::Start)
+                        .align_y(cosmic::iced::Alignment::Center)
                         .width(Length::Fill);
 
                     if self.config.popup_calendar_indicator
@@ -502,6 +505,19 @@ impl AppModel {
             ));
 
         content = content.push(display_section);
+        content = content.push(widget::vertical_space().height(space.space_xs));
+
+        // ===== KEYBOARD SHORTCUT SECTION =====
+        let shortcut_section = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
+            .add(settings_nav_row_with_icon(
+                "input-keyboard-symbolic",
+                fl!("keyboard-shortcut"),
+                String::new(),
+                Message::Navigate(PopupPage::KeyboardShortcut),
+            ));
+
+        content = content.push(shortcut_section);
         content = content.push(widget::vertical_space().height(space.space_xs));
 
         // ===== ABOUT SECTION =====
@@ -1288,7 +1304,7 @@ impl AppModel {
 
         content = content.push(refresh_settings);
 
-        // Sync manually button (centered, standard size)
+        // Force sync manually button (centered, standard size)
         let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
         content = content.push(widget::vertical_space().height(space.space_xs));
 
@@ -1318,6 +1334,78 @@ impl AppModel {
         content = content.push(widget::vertical_space().height(space.space_s));
         content =
             content.push(widget::text::caption(fl!("refresh-description")).class(secondary_text));
+        content = content.push(widget::vertical_space().height(space.space_m));
+
+        content.into()
+    }
+
+    /// Keyboard shortcut setup page
+    #[allow(clippy::unused_self)]
+    fn view_keyboard_shortcut_page(&self) -> Element<'_, Message> {
+        let space = spacing();
+
+        let mut content = widget::column::with_capacity(8)
+            .padding(space.space_xs)
+            .spacing(space.space_xs)
+            .width(Length::Fill);
+
+        // Back button header
+        content = content.push(settings_page_header(
+            fl!("settings"),
+            fl!("keyboard-shortcut"),
+            Message::Navigate(PopupPage::Settings),
+        ));
+
+        // Description
+        content = content.push(widget::text::body(fl!("keyboard-shortcut-description")));
+
+        content = content.push(widget::vertical_space().height(space.space_xxs));
+
+        // Instructions (second paragraph)
+        content = content.push(widget::text::body(fl!("keyboard-shortcut-instructions")));
+
+        content = content.push(widget::vertical_space().height(space.space_xs));
+
+        // Command in a styled container (read-only text input for selectability)
+        // Show different command based on whether we're running in Flatpak
+        let command: &'static str = if std::env::var("FLATPAK_ID").is_ok() {
+            "flatpak run com.dangrover.next-meeting-app --join-next"
+        } else {
+            "cosmic-next-meeting --join-next"
+        };
+        content = content.push(
+            widget::container(
+                widget::row::with_capacity(2)
+                    .spacing(space.space_s)
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .push(
+                        widget::text_input("", command)
+                            .on_input(|_| Message::Noop)
+                            .font(cosmic::iced::Font::MONOSPACE)
+                            .width(Length::Fill),
+                    )
+                    .push(
+                        widget::button::text(fl!("keyboard-shortcut-copy"))
+                            .class(cosmic::theme::Button::Standard)
+                            .on_press(Message::CopyToClipboard(command.to_string())),
+                    ),
+            )
+            .padding(space.space_s)
+            .class(cosmic::theme::Container::List),
+        );
+
+        content = content.push(widget::vertical_space().height(space.space_s));
+
+        // Open Settings button
+        content = content.push(
+            widget::container(
+                widget::button::standard(fl!("keyboard-shortcut-open-settings"))
+                    .on_press(Message::OpenCosmicSettings),
+            )
+            .width(Length::Fill)
+            .align_x(cosmic::iced::alignment::Horizontal::Center),
+        );
+
         content = content.push(widget::vertical_space().height(space.space_m));
 
         content.into()
@@ -1400,9 +1488,13 @@ impl AppModel {
     }
 }
 
-/// Open a URL in the default browser
-fn open_url(url: &str) {
-    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+/// Open a URL in the default browser.
+/// Returns true if the command was spawned successfully.
+pub fn open_url(url: &str) -> bool {
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .is_ok()
 }
 
 /// Open an event in the user's default calendar application.
@@ -1422,16 +1514,28 @@ fn open_event_in_calendar(event_uid: &str) {
     }
 
     // Check if it's GNOME Calendar (supports --uuid flag)
-    if desktop_file.contains("gnome-calendar") {
+    // Handle both "gnome-calendar" and "org.gnome.Calendar" naming conventions
+    let lowercase = desktop_file.to_lowercase();
+    if lowercase.contains("gnome-calendar") || lowercase.contains("gnome.calendar") {
         let _ = std::process::Command::new("gnome-calendar")
             .arg("--uuid")
             .arg(event_uid)
             .spawn();
     } else {
-        // For other calendar apps, use gtk-launch which finds desktop files by name
-        let _ = std::process::Command::new("gtk-launch")
+        // For other calendar apps, try gtk-launch first, then fall back to gio
+        let gtk_result = std::process::Command::new("gtk-launch")
             .arg(&desktop_file)
             .spawn();
+
+        if gtk_result.is_err() {
+            let xdg_dirs = xdg::BaseDirectories::new();
+            if let Some(path) = xdg_dirs.find_data_file(format!("applications/{desktop_file}")) {
+                let path_str = path.to_string_lossy();
+                let _ = std::process::Command::new("gio")
+                    .args(["launch", path_str.as_ref()])
+                    .spawn();
+            }
+        }
     }
 }
 
@@ -1450,6 +1554,7 @@ pub enum Message {
     OpenCalendar,
     OpenEvent(String),
     OpenUrl(String),
+    CopyToClipboard(String),
     SetPopupJoinButton(usize),
     SetPanelJoinButton(usize),
     SetPopupShowLocation(bool),
@@ -1470,6 +1575,10 @@ pub enum Message {
     SetAutoRefresh(bool),
     SetAutoRefreshInterval(usize),
     CalendarChanged,
+    /// System resumed from sleep or session was unlocked
+    SystemResumed,
+    OpenCosmicSettings,
+    Noop,
 }
 
 /// Create a COSMIC application from the app model
@@ -1740,13 +1849,14 @@ impl cosmic::Application for AppModel {
             PopupPage::PopupDisplaySettings => self.view_popup_display_settings_page(),
             PopupPage::PanelJoinButtonSettings => self.view_panel_join_button_settings_page(),
             PopupPage::PopupJoinButtonSettings => self.view_popup_join_button_settings_page(),
+            PopupPage::KeyboardShortcut => self.view_keyboard_shortcut_page(),
             PopupPage::About => self.view_about_page(),
         };
 
         // Popup size limits
         let limits = Limits::NONE
-            .max_width(400.0)
-            .min_width(400.0)
+            .max_width(420.0)
+            .min_width(420.0)
             .min_height(200.0)
             .max_height(800.0);
 
@@ -1851,6 +1961,26 @@ impl cosmic::Application for AppModel {
                 // Forward messages from the watcher to the iced channel
                 while receiver.recv().await.is_some() {
                     let _ = channel.send(Message::CalendarChanged).await;
+                }
+
+                // Clean up if the watcher exits
+                watch_task.abort();
+            }),
+        ));
+
+        // Watch for system resume (from sleep) and session unlock events
+        // Uses org.freedesktop.login1 on the system bus; fails gracefully on non-systemd systems
+        subscriptions.push(Subscription::run_with_id(
+            "system-resume",
+            cosmic::iced::stream::channel(2, move |mut channel| async move {
+                let (sender, mut receiver) = tokio::sync::mpsc::channel::<()>(2);
+
+                // Spawn the watcher in a separate task
+                let watch_task = tokio::spawn(crate::calendar::watch_system_resume(sender));
+
+                // Forward messages from the watcher to the iced channel
+                while receiver.recv().await.is_some() {
+                    let _ = channel.send(Message::SystemResumed).await;
                 }
 
                 // Clean up if the watcher exits
@@ -1963,16 +2093,30 @@ impl cosmic::Application for AppModel {
                 self.current_page = page;
             }
             Message::OpenCalendar => {
-                // Query the default calendar application and launch it using gtk-launch
+                // Query the default calendar application and launch it
                 if let Ok(output) = std::process::Command::new("xdg-mime")
                     .args(["query", "default", "text/calendar"])
                     .output()
                 {
                     let desktop_file = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if !desktop_file.is_empty() {
-                        let _ = std::process::Command::new("gtk-launch")
+                        // Try gtk-launch first (works on GTK-based systems)
+                        let gtk_result = std::process::Command::new("gtk-launch")
                             .arg(&desktop_file)
                             .spawn();
+
+                        // Fall back to gio launch with full path (for non-GTK systems like COSMIC)
+                        if gtk_result.is_err() {
+                            let xdg_dirs = xdg::BaseDirectories::new();
+                            if let Some(path) =
+                                xdg_dirs.find_data_file(format!("applications/{desktop_file}"))
+                            {
+                                let path_str = path.to_string_lossy();
+                                let _ = std::process::Command::new("gio")
+                                    .args(["launch", path_str.as_ref()])
+                                    .spawn();
+                            }
+                        }
                     }
                 }
             }
@@ -1982,6 +2126,9 @@ impl cosmic::Application for AppModel {
             Message::OpenUrl(url) => {
                 // Open the meeting URL using freedesktop portal (preferred) or xdg-open fallback
                 open_url(&url);
+            }
+            Message::CopyToClipboard(text) => {
+                return clipboard::write(text);
             }
             Message::SetPopupJoinButton(idx) => {
                 self.config.popup_join_button = match idx {
@@ -2154,6 +2301,12 @@ impl cosmic::Application for AppModel {
                     let _ = self.config.write_entry(ctx);
                 }
             }
+            Message::OpenCosmicSettings => {
+                let _ = std::process::Command::new("cosmic-settings")
+                    .arg("keyboard")
+                    .spawn();
+            }
+            Message::Noop => {}
             Message::CalendarChanged => {
                 // A calendar was updated via D-Bus signal (sync completed)
                 // Refresh both calendars list (for updated sync timestamps) and meetings
@@ -2179,6 +2332,47 @@ impl cosmic::Application for AppModel {
                 );
 
                 return Task::batch([calendars_task, meetings_task]);
+            }
+            Message::SystemResumed => {
+                // System woke from sleep or session was unlocked
+                // Refresh immediately to show current data, and optionally trigger EDS sync
+                let enabled_uids = self.enabled_meeting_source_uids();
+                let upcoming_count = self.config.upcoming_events_count as usize;
+                let additional_emails = self.config.additional_emails.clone();
+
+                let mut tasks = vec![];
+
+                // If auto-refresh is enabled, tell EDS to fetch fresh data from remote servers
+                // The CalendarChanged handler will fire again when EDS finishes syncing
+                if self.config.auto_refresh_enabled {
+                    let refresh_uids = enabled_uids.clone();
+                    tasks.push(Task::perform(
+                        async move {
+                            crate::calendar::refresh_calendars(&refresh_uids).await;
+                        },
+                        |()| Message::Noop.into(),
+                    ));
+                }
+
+                // Also immediately refresh local data so we show what's cached
+                tasks.push(Task::perform(
+                    async { crate::calendar::get_available_calendars().await },
+                    |calendars| Message::CalendarsLoaded(calendars).into(),
+                ));
+
+                tasks.push(Task::perform(
+                    async move {
+                        crate::calendar::get_upcoming_meetings(
+                            &enabled_uids,
+                            upcoming_count + 1,
+                            &additional_emails,
+                        )
+                        .await
+                    },
+                    |meetings| Message::MeetingsUpdated(meetings).into(),
+                ));
+
+                return Task::batch(tasks);
             }
             Message::TogglePopup => {
                 return if let Some(p) = self.popup.take() {

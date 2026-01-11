@@ -15,6 +15,7 @@
         "--talk-name=org.gnome.evolution.dataserver.Calendar8",
         "--talk-name=org.gnome.evolution.dataserver.Sources5",
         "--talk-name=org.gnome.OnlineAccounts",
+        "--system-talk-name=org.freedesktop.login1",
         "--filesystem=xdg-config/cosmic:ro",
         "--filesystem=xdg-config/evolution:ro"
     ],

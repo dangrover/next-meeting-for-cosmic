@@ -1076,6 +1076,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "tokio",
+ "xdg",
  "zbus 3.15.2",
 ]
 
