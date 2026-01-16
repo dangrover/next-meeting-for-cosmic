@@ -71,6 +71,7 @@ reload-applet:
 install:
     install -Dm0755 {{ cargo-target-dir / 'release' / name }} {{bin-dst}}
     install -Dm0644 resources/app.desktop {{desktop-dst}}
+    sed -i 's|^Exec=.*|Exec={{bin-dst}}|' {{desktop-dst}}
     install -Dm0644 resources/app.metainfo.xml {{metainfo-dst}}
     install -Dm0644 resources/icon.svg {{icon-dst}}
     install -Dm0644 resources/icon-symbolic.svg {{icon-symbolic-dst}}
