@@ -967,43 +967,122 @@ fn parse_ical_timezone(tz_str: &str) -> Option<Tz> {
     // Windows timezone aliases are grouped with their IANA equivalents
     match tz_str {
         // US timezones (including Windows aliases)
-        "America/Los_Angeles" | "Pacific Standard Time" | "Pacific Daylight Time" => {
-            Some(Tz::America__Los_Angeles)
-        }
-        "America/New_York" | "Eastern Standard Time" | "Eastern Daylight Time" => {
+        "America/Los_Angeles"
+        | "Pacific Standard Time"
+        | "Pacific Daylight Time"
+        | "PST"
+        | "PDT" => Some(Tz::America__Los_Angeles),
+        "America/New_York" | "Eastern Standard Time" | "Eastern Daylight Time" | "EST" | "EDT" => {
             Some(Tz::America__New_York)
         }
-        "America/Chicago" | "Central Standard Time" | "Central Daylight Time" => {
+        "America/Chicago" | "Central Standard Time" | "Central Daylight Time" | "CST" | "CDT" => {
             Some(Tz::America__Chicago)
         }
-        "America/Denver" | "Mountain Standard Time" | "Mountain Daylight Time" => {
+        "America/Denver" | "Mountain Standard Time" | "Mountain Daylight Time" | "MST" | "MDT" => {
             Some(Tz::America__Denver)
         }
-        "America/Phoenix" => Some(Tz::America__Phoenix),
+        "America/Phoenix" | "US Mountain Standard Time" => Some(Tz::America__Phoenix),
         "America/Detroit" => Some(Tz::America__Detroit),
-        "America/Indiana/Indianapolis" => Some(Tz::America__Indiana__Indianapolis),
-        "America/Anchorage" => Some(Tz::America__Anchorage),
-        // European timezones
-        "Europe/London" => Some(Tz::Europe__London),
-        "Europe/Paris" => Some(Tz::Europe__Paris),
-        "Europe/Berlin" => Some(Tz::Europe__Berlin),
+        "America/Indiana/Indianapolis" | "US Eastern Standard Time" => {
+            Some(Tz::America__Indiana__Indianapolis)
+        }
+        "America/Anchorage" | "Alaskan Standard Time" | "Alaskan Daylight Time" => {
+            Some(Tz::America__Anchorage)
+        }
+        "Pacific/Honolulu" | "Hawaiian Standard Time" | "HST" => Some(Tz::Pacific__Honolulu),
+
+        // European timezones (including Windows aliases)
+        // Note: "GMT Standard Time" is Windows name for UK time (which observes BST in summer)
+        "Europe/London" | "GMT Standard Time" | "GMT Daylight Time" | "GMT" | "BST" => {
+            Some(Tz::Europe__London)
+        }
+        "Europe/Dublin" => Some(Tz::Europe__Dublin),
+        "Europe/Paris" | "Romance Standard Time" | "Romance Daylight Time" => {
+            Some(Tz::Europe__Paris)
+        }
+        "Europe/Berlin"
+        | "W. Europe Standard Time"
+        | "W. Europe Daylight Time"
+        | "Central European Standard Time"
+        | "CET"
+        | "CEST" => Some(Tz::Europe__Berlin),
         "Europe/Amsterdam" => Some(Tz::Europe__Amsterdam),
         "Europe/Rome" => Some(Tz::Europe__Rome),
         "Europe/Madrid" => Some(Tz::Europe__Madrid),
-        // Asian timezones
-        "Asia/Tokyo" => Some(Tz::Asia__Tokyo),
-        "Asia/Shanghai" => Some(Tz::Asia__Shanghai),
-        "Asia/Singapore" => Some(Tz::Asia__Singapore),
+        "Europe/Brussels" => Some(Tz::Europe__Brussels),
+        "Europe/Vienna" => Some(Tz::Europe__Vienna),
+        "Europe/Zurich" => Some(Tz::Europe__Zurich),
+        "Europe/Stockholm" => Some(Tz::Europe__Stockholm),
+        "Europe/Oslo" => Some(Tz::Europe__Oslo),
+        "Europe/Copenhagen" => Some(Tz::Europe__Copenhagen),
+        "Europe/Helsinki" | "FLE Standard Time" => Some(Tz::Europe__Helsinki),
+        "Europe/Warsaw" => Some(Tz::Europe__Warsaw),
+        "Europe/Prague" => Some(Tz::Europe__Prague),
+        "Europe/Budapest" => Some(Tz::Europe__Budapest),
+        "Europe/Athens" | "GTB Standard Time" => Some(Tz::Europe__Athens),
+        "Europe/Bucharest" => Some(Tz::Europe__Bucharest),
+        "Europe/Moscow" | "Russian Standard Time" => Some(Tz::Europe__Moscow),
+        "Europe/Istanbul" | "Turkey Standard Time" => Some(Tz::Europe__Istanbul),
+        "Europe/Lisbon" => Some(Tz::Europe__Lisbon),
+
+        // UK/Ireland specific
+        "Etc/GMT" | "Greenwich Standard Time" => Some(Tz::Etc__GMT),
+
+        // Asian timezones (including Windows aliases)
+        // Note: "CST" is kept for US Central time; China uses full "China Standard Time"
+        "Asia/Tokyo" | "Tokyo Standard Time" | "JST" => Some(Tz::Asia__Tokyo),
+        "Asia/Shanghai" | "China Standard Time" => Some(Tz::Asia__Shanghai),
+        "Asia/Singapore" | "Singapore Standard Time" | "SGT" => Some(Tz::Asia__Singapore),
         "Asia/Hong_Kong" => Some(Tz::Asia__Hong_Kong),
-        "Asia/Kolkata" => Some(Tz::Asia__Kolkata),
-        "Asia/Dubai" => Some(Tz::Asia__Dubai),
-        // Pacific timezones
-        "Pacific/Honolulu" => Some(Tz::Pacific__Honolulu),
-        "Pacific/Auckland" => Some(Tz::Pacific__Auckland),
-        "Australia/Sydney" => Some(Tz::Australia__Sydney),
+        "Asia/Kolkata" | "India Standard Time" | "IST" => Some(Tz::Asia__Kolkata),
+        "Asia/Dubai" | "Arabian Standard Time" => Some(Tz::Asia__Dubai),
+        "Asia/Seoul" | "Korea Standard Time" | "KST" => Some(Tz::Asia__Seoul),
+        "Asia/Bangkok" | "SE Asia Standard Time" => Some(Tz::Asia__Bangkok),
+        "Asia/Jakarta" => Some(Tz::Asia__Jakarta),
+        "Asia/Taipei" | "Taipei Standard Time" => Some(Tz::Asia__Taipei),
+        "Asia/Manila" => Some(Tz::Asia__Manila),
+        "Asia/Kuala_Lumpur" => Some(Tz::Asia__Kuala_Lumpur),
+        "Asia/Jerusalem" | "Israel Standard Time" => Some(Tz::Asia__Jerusalem),
+        "Asia/Riyadh" | "Arab Standard Time" => Some(Tz::Asia__Riyadh),
+        "Asia/Karachi" | "Pakistan Standard Time" => Some(Tz::Asia__Karachi),
+        "Asia/Dhaka" | "Bangladesh Standard Time" => Some(Tz::Asia__Dhaka),
+
+        // Pacific/Oceania timezones (including Windows aliases)
+        "Pacific/Auckland" | "New Zealand Standard Time" | "NZST" | "NZDT" => {
+            Some(Tz::Pacific__Auckland)
+        }
+        "Australia/Sydney"
+        | "AUS Eastern Standard Time"
+        | "AUS Eastern Daylight Time"
+        | "AEST"
+        | "AEDT" => Some(Tz::Australia__Sydney),
         "Australia/Melbourne" => Some(Tz::Australia__Melbourne),
+        "Australia/Brisbane" | "E. Australia Standard Time" => Some(Tz::Australia__Brisbane),
+        "Australia/Perth" | "W. Australia Standard Time" => Some(Tz::Australia__Perth),
+        "Australia/Adelaide" | "Cen. Australia Standard Time" => Some(Tz::Australia__Adelaide),
+
+        // Americas (non-US)
+        "America/Toronto" => Some(Tz::America__Toronto),
+        "America/Vancouver" => Some(Tz::America__Vancouver),
+        "America/Mexico_City" | "Central Standard Time (Mexico)" => Some(Tz::America__Mexico_City),
+        "America/Sao_Paulo" | "E. South America Standard Time" => Some(Tz::America__Sao_Paulo),
+        "America/Buenos_Aires" | "Argentina Standard Time" => {
+            Some(Tz::America__Argentina__Buenos_Aires)
+        }
+        "America/Santiago" | "Pacific SA Standard Time" => Some(Tz::America__Santiago),
+        "America/Bogota" | "SA Pacific Standard Time" => Some(Tz::America__Bogota),
+        "America/Lima" => Some(Tz::America__Lima),
+        "America/Caracas" | "Venezuela Standard Time" => Some(Tz::America__Caracas),
+
+        // Africa
+        "Africa/Cairo" | "Egypt Standard Time" => Some(Tz::Africa__Cairo),
+        "Africa/Johannesburg" | "South Africa Standard Time" => Some(Tz::Africa__Johannesburg),
+        "Africa/Lagos" | "W. Central Africa Standard Time" => Some(Tz::Africa__Lagos),
+        "Africa/Nairobi" | "E. Africa Standard Time" => Some(Tz::Africa__Nairobi),
+
         // UTC
-        "UTC" | "Etc/UTC" => Some(Tz::UTC),
+        "UTC" | "Etc/UTC" | "Coordinated Universal Time" | "Z" => Some(Tz::UTC),
+
         _ => None,
     }
 }
