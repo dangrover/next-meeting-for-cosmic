@@ -1072,52 +1072,66 @@ fn extract_timezone_from_prop(prop: &ical::property::Property) -> Option<String>
     })
 }
 
-/// Parse an iCal timezone string to rrule Tz timezone
+/// Parse an iCal timezone string to rrule `Tz` timezone.
+///
+/// Supports all IANA timezone identifiers (e.g., `America/New_York`, `Europe/London`)
+/// via chrono-tz (case-insensitive), plus Windows timezone names
+/// (e.g., "Eastern Standard Time") via the CLDR mapping from the localzone crate.
+///
+/// Returns `None` and logs a warning if the timezone cannot be parsed.
 fn parse_ical_timezone(tz_str: &str) -> Option<Tz> {
-    // Common IANA timezones (convert slashes to double underscores for rrule)
-    // The rrule crate uses constants like Tz::America__Los_Angeles
-    // Windows timezone aliases are grouped with their IANA equivalents
-    match tz_str {
-        // US timezones (including Windows aliases)
-        "America/Los_Angeles" | "Pacific Standard Time" | "Pacific Daylight Time" => {
-            Some(Tz::America__Los_Angeles)
-        }
-        "America/New_York" | "Eastern Standard Time" | "Eastern Daylight Time" => {
-            Some(Tz::America__New_York)
-        }
-        "America/Chicago" | "Central Standard Time" | "Central Daylight Time" => {
-            Some(Tz::America__Chicago)
-        }
-        "America/Denver" | "Mountain Standard Time" | "Mountain Daylight Time" => {
-            Some(Tz::America__Denver)
-        }
-        "America/Phoenix" => Some(Tz::America__Phoenix),
-        "America/Detroit" => Some(Tz::America__Detroit),
-        "America/Indiana/Indianapolis" => Some(Tz::America__Indiana__Indianapolis),
-        "America/Anchorage" => Some(Tz::America__Anchorage),
-        // European timezones
-        "Europe/London" => Some(Tz::Europe__London),
-        "Europe/Paris" => Some(Tz::Europe__Paris),
-        "Europe/Berlin" => Some(Tz::Europe__Berlin),
-        "Europe/Amsterdam" => Some(Tz::Europe__Amsterdam),
-        "Europe/Rome" => Some(Tz::Europe__Rome),
-        "Europe/Madrid" => Some(Tz::Europe__Madrid),
-        // Asian timezones
-        "Asia/Tokyo" => Some(Tz::Asia__Tokyo),
-        "Asia/Shanghai" => Some(Tz::Asia__Shanghai),
-        "Asia/Singapore" => Some(Tz::Asia__Singapore),
-        "Asia/Hong_Kong" => Some(Tz::Asia__Hong_Kong),
-        "Asia/Kolkata" => Some(Tz::Asia__Kolkata),
-        "Asia/Dubai" => Some(Tz::Asia__Dubai),
-        // Pacific timezones
-        "Pacific/Honolulu" => Some(Tz::Pacific__Honolulu),
-        "Pacific/Auckland" => Some(Tz::Pacific__Auckland),
-        "Australia/Sydney" => Some(Tz::Australia__Sydney),
-        "Australia/Melbourne" => Some(Tz::Australia__Melbourne),
-        // UTC
-        "UTC" | "Etc/UTC" => Some(Tz::UTC),
-        _ => None,
+    // Helper to convert an IANA timezone string to rrule::Tz
+    let iana_to_tz = |iana: &str| -> Option<Tz> {
+        // Use case-insensitive parsing (requires chrono-tz "case-insensitive" feature)
+        let chrono_tz = chrono_tz::Tz::from_str_insensitive(iana).ok()?;
+        let tz: Tz = chrono_tz.into();
+        // Normalize Etc/UTC to the canonical UTC
+        Some(if tz == Tz::Etc__UTC { Tz::UTC } else { tz })
+    };
+
+    // First, try parsing as an IANA timezone identifier directly.
+    // This handles all ~400+ IANA timezones (case-insensitive with chrono-tz feature).
+    if let Some(tz) = iana_to_tz(tz_str) {
+        return Some(tz);
     }
+
+    // Fall back to Windows timezone names using CLDR mapping.
+    // CLDR only has "Standard Time" entries, not "Daylight Time", so normalize.
+    let normalized = tz_str.replace(" Daylight Time", " Standard Time");
+    if let Some(iana) = localzone::win_zone_to_iana(&normalized, None) {
+        return iana_to_tz(iana);
+    }
+
+    // Last resort: common non-standard abbreviations seen in calendar software.
+    // These aren't valid IANA zones and aren't in CLDR, but appear in the wild.
+    // Excludes ambiguous abbreviations (IST=India/Ireland/Israel, CST=US/China).
+    let abbrev_iana = match tz_str {
+        "PST" | "PDT" => Some("America/Los_Angeles"),
+        "EDT" => Some("America/New_York"),
+        "CDT" => Some("America/Chicago"),
+        "MDT" => Some("America/Denver"),
+        "BST" => Some("Europe/London"),
+        "CEST" => Some("Europe/Berlin"),
+        "JST" => Some("Asia/Tokyo"),
+        "SGT" => Some("Asia/Singapore"),
+        "KST" => Some("Asia/Seoul"),
+        "NZST" | "NZDT" => Some("Pacific/Auckland"),
+        "AEST" | "AEDT" => Some("Australia/Sydney"),
+        "AWST" => Some("Australia/Perth"),
+        "Z" => Some("UTC"),
+        _ => None,
+    };
+    if let Some(iana) = abbrev_iana {
+        return iana_to_tz(iana);
+    }
+
+    // Log unrecognized timezones to help debug issues in the wild.
+    // The caller will fall back to local time interpretation.
+    if !tz_str.is_empty() {
+        eprintln!("warning: unrecognized timezone '{tz_str}', falling back to local time");
+    }
+
+    None
 }
 
 /// Expand a recurring event (RRULE) into individual occurrences within a time range
@@ -1593,5 +1607,482 @@ mod tests {
         let patterns: Vec<String> = vec![];
         let meeting = make_test_meeting(Some("https://example.com/meeting"), None);
         assert!(get_physical_location(&meeting, &patterns).is_none());
+    }
+
+    // ==========================================================================
+    // Tests for parse_ical_timezone
+    // ==========================================================================
+
+    #[test]
+    fn test_tz_iana_us_timezones() {
+        assert_eq!(
+            parse_ical_timezone("America/Los_Angeles"),
+            Some(Tz::America__Los_Angeles)
+        );
+        assert_eq!(
+            parse_ical_timezone("America/New_York"),
+            Some(Tz::America__New_York)
+        );
+        assert_eq!(
+            parse_ical_timezone("America/Chicago"),
+            Some(Tz::America__Chicago)
+        );
+        assert_eq!(
+            parse_ical_timezone("America/Denver"),
+            Some(Tz::America__Denver)
+        );
+        assert_eq!(
+            parse_ical_timezone("America/Phoenix"),
+            Some(Tz::America__Phoenix)
+        );
+        assert_eq!(
+            parse_ical_timezone("America/Detroit"),
+            Some(Tz::America__Detroit)
+        );
+        assert_eq!(
+            parse_ical_timezone("America/Indiana/Indianapolis"),
+            Some(Tz::America__Indiana__Indianapolis)
+        );
+        assert_eq!(
+            parse_ical_timezone("America/Anchorage"),
+            Some(Tz::America__Anchorage)
+        );
+    }
+
+    #[test]
+    fn test_tz_iana_european_timezones() {
+        assert_eq!(
+            parse_ical_timezone("Europe/London"),
+            Some(Tz::Europe__London)
+        );
+        assert_eq!(parse_ical_timezone("Europe/Paris"), Some(Tz::Europe__Paris));
+        assert_eq!(
+            parse_ical_timezone("Europe/Berlin"),
+            Some(Tz::Europe__Berlin)
+        );
+        assert_eq!(
+            parse_ical_timezone("Europe/Amsterdam"),
+            Some(Tz::Europe__Amsterdam)
+        );
+        assert_eq!(parse_ical_timezone("Europe/Rome"), Some(Tz::Europe__Rome));
+        assert_eq!(
+            parse_ical_timezone("Europe/Madrid"),
+            Some(Tz::Europe__Madrid)
+        );
+    }
+
+    #[test]
+    fn test_tz_iana_asian_timezones() {
+        assert_eq!(parse_ical_timezone("Asia/Tokyo"), Some(Tz::Asia__Tokyo));
+        assert_eq!(
+            parse_ical_timezone("Asia/Shanghai"),
+            Some(Tz::Asia__Shanghai)
+        );
+        assert_eq!(
+            parse_ical_timezone("Asia/Singapore"),
+            Some(Tz::Asia__Singapore)
+        );
+        assert_eq!(
+            parse_ical_timezone("Asia/Hong_Kong"),
+            Some(Tz::Asia__Hong_Kong)
+        );
+        assert_eq!(parse_ical_timezone("Asia/Kolkata"), Some(Tz::Asia__Kolkata));
+        assert_eq!(parse_ical_timezone("Asia/Dubai"), Some(Tz::Asia__Dubai));
+    }
+
+    #[test]
+    fn test_tz_iana_pacific_oceania_timezones() {
+        assert_eq!(
+            parse_ical_timezone("Pacific/Honolulu"),
+            Some(Tz::Pacific__Honolulu)
+        );
+        assert_eq!(
+            parse_ical_timezone("Pacific/Auckland"),
+            Some(Tz::Pacific__Auckland)
+        );
+        assert_eq!(
+            parse_ical_timezone("Australia/Sydney"),
+            Some(Tz::Australia__Sydney)
+        );
+        assert_eq!(
+            parse_ical_timezone("Australia/Melbourne"),
+            Some(Tz::Australia__Melbourne)
+        );
+    }
+
+    #[test]
+    fn test_tz_utc_variants() {
+        assert_eq!(parse_ical_timezone("UTC"), Some(Tz::UTC));
+        assert_eq!(parse_ical_timezone("Etc/UTC"), Some(Tz::UTC));
+    }
+
+    #[test]
+    fn test_tz_windows_us_aliases() {
+        // Pacific
+        assert_eq!(
+            parse_ical_timezone("Pacific Standard Time"),
+            Some(Tz::America__Los_Angeles)
+        );
+        assert_eq!(
+            parse_ical_timezone("Pacific Daylight Time"),
+            Some(Tz::America__Los_Angeles)
+        );
+        // Eastern
+        assert_eq!(
+            parse_ical_timezone("Eastern Standard Time"),
+            Some(Tz::America__New_York)
+        );
+        assert_eq!(
+            parse_ical_timezone("Eastern Daylight Time"),
+            Some(Tz::America__New_York)
+        );
+        // Central
+        assert_eq!(
+            parse_ical_timezone("Central Standard Time"),
+            Some(Tz::America__Chicago)
+        );
+        assert_eq!(
+            parse_ical_timezone("Central Daylight Time"),
+            Some(Tz::America__Chicago)
+        );
+        // Mountain
+        assert_eq!(
+            parse_ical_timezone("Mountain Standard Time"),
+            Some(Tz::America__Denver)
+        );
+        assert_eq!(
+            parse_ical_timezone("Mountain Daylight Time"),
+            Some(Tz::America__Denver)
+        );
+    }
+
+    #[test]
+    fn test_tz_edge_cases() {
+        // Unknown timezones should return None
+        assert_eq!(parse_ical_timezone("Unknown/Timezone"), None);
+        assert_eq!(parse_ical_timezone(""), None);
+        assert_eq!(parse_ical_timezone("not a timezone"), None);
+
+        // IANA timezone IDs are parsed case-insensitively (chrono-tz "case-insensitive" feature)
+        assert_eq!(
+            parse_ical_timezone("america/los_angeles"),
+            Some(Tz::America__Los_Angeles)
+        );
+        assert_eq!(
+            parse_ical_timezone("AMERICA/LOS_ANGELES"),
+            Some(Tz::America__Los_Angeles)
+        );
+        assert_eq!(
+            parse_ical_timezone("europe/london"),
+            Some(Tz::Europe__London)
+        );
+        assert_eq!(
+            parse_ical_timezone("Asia/TOKYO"),
+            Some(Tz::Asia__Tokyo)
+        );
+    }
+
+    // These IANA timezones were not in the original hardcoded list but now work
+    // via chrono-tz's FromStr implementation.
+    #[test]
+    fn test_tz_additional_iana_timezones() {
+        // Americas
+        assert_eq!(
+            parse_ical_timezone("America/Toronto"),
+            Some(Tz::America__Toronto)
+        );
+        assert_eq!(
+            parse_ical_timezone("America/Sao_Paulo"),
+            Some(Tz::America__Sao_Paulo)
+        );
+
+        // Europe
+        assert_eq!(
+            parse_ical_timezone("Europe/Moscow"),
+            Some(Tz::Europe__Moscow)
+        );
+
+        // Asia
+        assert_eq!(parse_ical_timezone("Asia/Seoul"), Some(Tz::Asia__Seoul));
+
+        // Africa
+        assert_eq!(parse_ical_timezone("Africa/Cairo"), Some(Tz::Africa__Cairo));
+    }
+
+    // Windows timezone aliases via CLDR mapping from localzone crate.
+    // These are the key examples from PR #9 that motivated the timezone fix.
+    #[test]
+    fn test_tz_windows_international_aliases() {
+        // UK - "GMT Standard Time" is the Windows name for UK time (observes BST)
+        assert_eq!(
+            parse_ical_timezone("GMT Standard Time"),
+            Some(Tz::Europe__London)
+        );
+
+        // China
+        assert_eq!(
+            parse_ical_timezone("China Standard Time"),
+            Some(Tz::Asia__Shanghai)
+        );
+
+        // Japan
+        assert_eq!(
+            parse_ical_timezone("Tokyo Standard Time"),
+            Some(Tz::Asia__Tokyo)
+        );
+
+        // India - CLDR uses the old IANA name "Asia/Calcutta"
+        assert_eq!(
+            parse_ical_timezone("India Standard Time"),
+            Some(Tz::Asia__Calcutta)
+        );
+
+        // Australia
+        assert_eq!(
+            parse_ical_timezone("AUS Eastern Standard Time"),
+            Some(Tz::Australia__Sydney)
+        );
+    }
+
+    // Additional Windows timezone names from PR #9, verified against CLDR.
+    #[test]
+    fn test_tz_windows_extended_coverage() {
+        // US additional
+        assert_eq!(
+            parse_ical_timezone("US Mountain Standard Time"),
+            Some(Tz::America__Phoenix)
+        );
+        assert_eq!(
+            parse_ical_timezone("US Eastern Standard Time"),
+            Some(Tz::America__Indianapolis)
+        );
+        assert_eq!(
+            parse_ical_timezone("Alaskan Standard Time"),
+            Some(Tz::America__Anchorage)
+        );
+        assert_eq!(
+            parse_ical_timezone("Hawaiian Standard Time"),
+            Some(Tz::Pacific__Honolulu)
+        );
+
+        // Europe additional
+        assert_eq!(
+            parse_ical_timezone("Romance Standard Time"),
+            Some(Tz::Europe__Paris)
+        );
+        assert_eq!(
+            parse_ical_timezone("W. Europe Standard Time"),
+            Some(Tz::Europe__Berlin)
+        );
+        assert_eq!(
+            parse_ical_timezone("Russian Standard Time"),
+            Some(Tz::Europe__Moscow)
+        );
+
+        // Asia additional
+        assert_eq!(
+            parse_ical_timezone("Korea Standard Time"),
+            Some(Tz::Asia__Seoul)
+        );
+        assert_eq!(
+            parse_ical_timezone("Singapore Standard Time"),
+            Some(Tz::Asia__Singapore)
+        );
+        assert_eq!(
+            parse_ical_timezone("Arabian Standard Time"),
+            Some(Tz::Asia__Dubai)
+        );
+
+        // Pacific/Oceania additional
+        assert_eq!(
+            parse_ical_timezone("New Zealand Standard Time"),
+            Some(Tz::Pacific__Auckland)
+        );
+        assert_eq!(
+            parse_ical_timezone("E. Australia Standard Time"),
+            Some(Tz::Australia__Brisbane)
+        );
+        assert_eq!(
+            parse_ical_timezone("W. Australia Standard Time"),
+            Some(Tz::Australia__Perth)
+        );
+
+        // Americas (non-US)
+        assert_eq!(
+            parse_ical_timezone("E. South America Standard Time"),
+            Some(Tz::America__Sao_Paulo)
+        );
+        // CLDR uses "America/Buenos_Aires" not "America/Argentina/Buenos_Aires"
+        assert_eq!(
+            parse_ical_timezone("Argentina Standard Time"),
+            Some(Tz::America__Buenos_Aires)
+        );
+
+        // Africa
+        assert_eq!(
+            parse_ical_timezone("Egypt Standard Time"),
+            Some(Tz::Africa__Cairo)
+        );
+        assert_eq!(
+            parse_ical_timezone("South Africa Standard Time"),
+            Some(Tz::Africa__Johannesburg)
+        );
+    }
+
+    // Timezone abbreviations: some are valid IANA zones, others are handled by
+    // our fallback table, and ambiguous ones are rejected.
+    #[test]
+    fn test_tz_abbreviations() {
+        // These ARE valid IANA zones (legacy/deprecated but recognized by chrono-tz)
+        assert_eq!(parse_ical_timezone("EST"), Some(Tz::EST)); // Fixed offset -5
+        assert_eq!(parse_ical_timezone("MST"), Some(Tz::MST)); // Fixed offset -7
+        assert_eq!(parse_ical_timezone("HST"), Some(Tz::HST)); // Fixed offset -10
+        assert_eq!(parse_ical_timezone("GMT"), Some(Tz::GMT)); // Same as UTC
+        assert_eq!(parse_ical_timezone("CET"), Some(Tz::CET)); // Central European
+        assert_eq!(parse_ical_timezone("MET"), Some(Tz::MET)); // Middle European
+
+        // Non-standard abbreviations handled by our fallback table
+        // US
+        assert_eq!(parse_ical_timezone("PST"), Some(Tz::America__Los_Angeles));
+        assert_eq!(parse_ical_timezone("PDT"), Some(Tz::America__Los_Angeles));
+        assert_eq!(parse_ical_timezone("EDT"), Some(Tz::America__New_York));
+        assert_eq!(parse_ical_timezone("CDT"), Some(Tz::America__Chicago));
+        assert_eq!(parse_ical_timezone("MDT"), Some(Tz::America__Denver));
+        // Europe
+        assert_eq!(parse_ical_timezone("BST"), Some(Tz::Europe__London));
+        assert_eq!(parse_ical_timezone("CEST"), Some(Tz::Europe__Berlin));
+        // Asia
+        assert_eq!(parse_ical_timezone("JST"), Some(Tz::Asia__Tokyo));
+        assert_eq!(parse_ical_timezone("KST"), Some(Tz::Asia__Seoul));
+        assert_eq!(parse_ical_timezone("SGT"), Some(Tz::Asia__Singapore));
+        // Pacific/Oceania
+        assert_eq!(parse_ical_timezone("NZST"), Some(Tz::Pacific__Auckland));
+        assert_eq!(parse_ical_timezone("NZDT"), Some(Tz::Pacific__Auckland));
+        assert_eq!(parse_ical_timezone("AEST"), Some(Tz::Australia__Sydney));
+        assert_eq!(parse_ical_timezone("AEDT"), Some(Tz::Australia__Sydney));
+        assert_eq!(parse_ical_timezone("AWST"), Some(Tz::Australia__Perth));
+        // UTC
+        assert_eq!(parse_ical_timezone("Z"), Some(Tz::UTC));
+
+        // Ambiguous abbreviations are NOT handled - they return None
+        assert_eq!(parse_ical_timezone("CST"), None); // US Central or China?
+        assert_eq!(parse_ical_timezone("IST"), None); // India, Ireland, or Israel?
+    }
+
+    // DST transition tests: verify that events scheduled during DST transitions
+    // are handled gracefully. Spring-forward creates a gap (hour doesn't exist),
+    // fall-back creates ambiguity (hour repeats).
+    #[test]
+    fn test_tz_dst_transitions() {
+        // In 2024, US DST:
+        // - Spring forward: March 10, 2024 2:00 AM -> 3:00 AM (2:30 AM doesn't exist)
+        // - Fall back: November 3, 2024 2:00 AM -> 1:00 AM (1:30 AM happens twice)
+
+        // Test that timezones observing DST are parsed correctly
+        // The timezone itself is always valid; DST handling happens at datetime level
+        let la_tz = parse_ical_timezone("America/Los_Angeles");
+        assert!(la_tz.is_some());
+        assert_eq!(la_tz, Some(Tz::America__Los_Angeles));
+
+        // Timezones that don't observe DST
+        let arizona_tz = parse_ical_timezone("America/Phoenix");
+        assert_eq!(arizona_tz, Some(Tz::America__Phoenix)); // No DST in Arizona
+
+        let utc_tz = parse_ical_timezone("UTC");
+        assert_eq!(utc_tz, Some(Tz::UTC)); // UTC never has DST
+
+        // European DST (different dates than US)
+        // In 2024: Last Sunday of March (March 31) and last Sunday of October (October 27)
+        let london_tz = parse_ical_timezone("Europe/London");
+        assert_eq!(london_tz, Some(Tz::Europe__London));
+
+        // Windows timezone names for DST-observing zones
+        // These should still parse correctly regardless of current DST status
+        let eastern_std = parse_ical_timezone("Eastern Standard Time");
+        let eastern_day = parse_ical_timezone("Eastern Daylight Time");
+        assert_eq!(eastern_std, Some(Tz::America__New_York));
+        assert_eq!(eastern_day, Some(Tz::America__New_York)); // Both map to same tz
+    }
+
+    // Integration tests: verify parse_ical_datetime works correctly with
+    // various timezone formats, including edge cases.
+    #[test]
+    fn test_parse_ical_datetime_with_timezones() {
+        // Basic UTC time (Z suffix)
+        let utc_result = parse_ical_datetime("20240315T140000Z", None);
+        assert!(utc_result.is_some());
+        let utc_dt = utc_result.unwrap();
+        // The parsed time should represent 14:00 UTC, converted to local
+        // We can't assert exact local time since it depends on system timezone,
+        // but we can verify it parsed successfully and is a valid datetime
+        assert!(utc_dt.timestamp() > 0);
+
+        // Time with IANA timezone
+        let iana_result = parse_ical_datetime("20240315T100000", Some("America/New_York"));
+        assert!(iana_result.is_some());
+
+        // Time with Windows timezone name
+        let win_result = parse_ical_datetime("20240315T100000", Some("Eastern Standard Time"));
+        assert!(win_result.is_some());
+
+        // Both should represent the same instant (10 AM Eastern)
+        // Since both IANA and Windows map to America/New_York
+        if let (Some(iana_dt), Some(win_dt)) = (iana_result, win_result) {
+            assert_eq!(iana_dt.timestamp(), win_dt.timestamp());
+        }
+
+        // Time with case-insensitive timezone
+        let case_result = parse_ical_datetime("20240315T100000", Some("america/new_york"));
+        assert!(case_result.is_some());
+        if let (Some(iana_dt), Some(case_dt)) = (
+            parse_ical_datetime("20240315T100000", Some("America/New_York")),
+            case_result,
+        ) {
+            assert_eq!(iana_dt.timestamp(), case_dt.timestamp());
+        }
+
+        // Date-only format (all-day events)
+        let date_result = parse_ical_datetime("20240315", None);
+        assert!(date_result.is_some());
+        let date_dt = date_result.unwrap();
+        assert_eq!(date_dt.format("%Y%m%d").to_string(), "20240315");
+
+        // Invalid timezone should fall back to local time interpretation
+        let invalid_tz_result = parse_ical_datetime("20240315T100000", Some("Invalid/Timezone"));
+        assert!(invalid_tz_result.is_some()); // Should still parse, just in local time
+    }
+
+    // Test DST transition edge cases in parse_ical_datetime
+    #[test]
+    fn test_parse_ical_datetime_dst_edge_cases() {
+        // Spring forward gap: 2:30 AM on March 10, 2024 doesn't exist in America/Los_Angeles
+        // The rrule/chrono libraries handle this by returning None for ambiguous times
+        let gap_result = parse_ical_datetime("20240310T023000", Some("America/Los_Angeles"));
+        // This may return None or a resolved time depending on library behavior
+        // The important thing is it doesn't panic
+
+        // Fall back overlap: 1:30 AM on November 3, 2024 happens twice
+        let overlap_result = parse_ical_datetime("20241103T013000", Some("America/Los_Angeles"));
+        // Libraries typically pick one interpretation (usually the first/earlier one)
+        // Again, should not panic
+
+        // Times clearly outside DST transitions should work normally
+        let summer_result = parse_ical_datetime("20240715T120000", Some("America/Los_Angeles"));
+        assert!(summer_result.is_some()); // July 15 is well within PDT
+
+        let winter_result = parse_ical_datetime("20240115T120000", Some("America/Los_Angeles"));
+        assert!(winter_result.is_some()); // January 15 is well within PST
+
+        // UTC times are never affected by DST
+        let utc_march = parse_ical_datetime("20240310T100000Z", None);
+        assert!(utc_march.is_some());
+
+        // Timezones without DST should never have gaps
+        let phoenix_result = parse_ical_datetime("20240310T023000", Some("America/Phoenix"));
+        assert!(phoenix_result.is_some()); // Arizona doesn't observe DST
+
+        // Suppress unused variable warnings for gap/overlap tests
+        let _ = gap_result;
+        let _ = overlap_result;
     }
 }

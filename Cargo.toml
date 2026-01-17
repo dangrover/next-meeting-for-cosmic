@@ -23,6 +23,8 @@ tokio = { version = "1.48.0", features = ["full"] }
 zbus = { version = "3.14", features = ["tokio", "xml"] }
 ical = "0.8"
 chrono = "0.4"
+chrono-tz = { version = "0.10", features = ["case-insensitive"] }
+localzone = { version = "0.3", features = ["win_zones"] }
 rrule = "0.14"
 serde = { version = "1.0", features = ["derive"] }
 regex = "1"
