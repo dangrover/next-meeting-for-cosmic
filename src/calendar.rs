@@ -489,7 +489,11 @@ async fn get_meetings_from_dbus(
                 ics_object.clone()
             };
 
-            if let Some(Ok(calendar)) = IcalParser::new(wrapped.as_bytes()).next() {
+            // Pre-unfold lines to work around ical crate bug that loses trailing
+            // spaces at fold points (it calls trim_end() before joining lines)
+            let unfolded = unfold_ical(&wrapped);
+
+            if let Some(Ok(calendar)) = IcalParser::new(unfolded.as_bytes()).next() {
                 for event in calendar.events {
                     // Check if this is an all-day event (DTSTART has VALUE=DATE)
                     let dtstart_prop = event.properties.iter().find(|p| p.name == "DTSTART");
@@ -531,21 +535,21 @@ async fn get_meetings_from_dbus(
                         .iter()
                         .find(|p| p.name == "SUMMARY")
                         .and_then(|p| p.value.as_ref())
-                        .map_or_else(|| "Untitled Event".to_string(), String::clone);
+                        .map_or_else(|| "Untitled Event".to_string(), |s| unescape_ical_text(s));
 
                     let location = event
                         .properties
                         .iter()
                         .find(|p| p.name == "LOCATION")
                         .and_then(|p| p.value.as_ref())
-                        .cloned();
+                        .map(|s| unescape_ical_text(s));
 
                     let description = event
                         .properties
                         .iter()
                         .find(|p| p.name == "DESCRIPTION")
                         .and_then(|p| p.value.as_ref())
-                        .cloned();
+                        .map(|s| unescape_ical_text(s));
 
                     // If this is a modified instance (has RECURRENCE-ID), use it directly
                     // The DTSTART in a modified instance is the actual occurrence time
@@ -1070,6 +1074,81 @@ fn extract_timezone_from_prop(prop: &ical::property::Property) -> Option<String>
             }
         })
     })
+}
+
+/// Unfold iCalendar long lines per RFC5545.
+///
+/// In iCalendar, long lines are folded by inserting CRLF (or LF) followed by
+/// a single whitespace character (space or tab). Unfolding removes the line
+/// break and the leading whitespace, joining the continuation to the previous line.
+///
+/// The `ical` crate has a bug where it calls `trim_end()` on lines before
+/// checking for continuations, which strips trailing spaces at fold points.
+/// This function correctly preserves those spaces.
+fn unfold_ical(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\r' && chars.peek() == Some(&'\n') {
+            // CRLF - check for fold continuation
+            chars.next(); // consume \n
+            if matches!(chars.peek(), Some(' ' | '\t')) {
+                chars.next(); // consume the fold whitespace, continue line
+            } else {
+                result.push('\n'); // regular line break (normalize to LF)
+            }
+        } else if c == '\n' {
+            // LF only - check for fold continuation
+            if matches!(chars.peek(), Some(' ' | '\t')) {
+                chars.next(); // consume the fold whitespace, continue line
+            } else {
+                result.push('\n'); // regular line break
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+/// Unescape iCalendar TEXT property values per RFC5545.
+///
+/// In iCalendar, TEXT values escape these characters:
+/// - `\,` → `,` (comma)
+/// - `\;` → `;` (semicolon)
+/// - `\\` → `\` (backslash)
+/// - `\n` or `\N` → newline
+fn unescape_ical_text(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.peek() {
+                Some(',') => {
+                    result.push(',');
+                    chars.next();
+                }
+                Some(';') => {
+                    result.push(';');
+                    chars.next();
+                }
+                Some('\\') => {
+                    result.push('\\');
+                    chars.next();
+                }
+                Some('n' | 'N') => {
+                    result.push('\n');
+                    chars.next();
+                }
+                _ => result.push(c), // Keep backslash if not a known escape
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 /// Parse an iCal timezone string to rrule `Tz` timezone.
@@ -2084,5 +2163,77 @@ mod tests {
         // Suppress unused variable warnings for gap/overlap tests
         let _ = gap_result;
         let _ = overlap_result;
+    }
+
+    // Test iCalendar TEXT value unescaping per RFC5545
+    #[test]
+    fn test_unescape_ical_text() {
+        // Escaped commas
+        assert_eq!(unescape_ical_text(r"Hello\, World"), "Hello, World");
+        assert_eq!(unescape_ical_text(r"A\, B\, C"), "A, B, C");
+
+        // Escaped semicolons
+        assert_eq!(unescape_ical_text(r"Part1\; Part2"), "Part1; Part2");
+
+        // Escaped backslashes
+        assert_eq!(unescape_ical_text(r"C:\\Users\\Name"), r"C:\Users\Name");
+
+        // Escaped newlines (both \n and \N)
+        assert_eq!(unescape_ical_text(r"Line1\nLine2"), "Line1\nLine2");
+        assert_eq!(unescape_ical_text(r"Line1\NLine2"), "Line1\nLine2");
+
+        // Mixed escapes
+        assert_eq!(
+            unescape_ical_text(r"Title\, with comma\; semicolon\nand newline"),
+            "Title, with comma; semicolon\nand newline"
+        );
+
+        // No escapes - passthrough
+        assert_eq!(unescape_ical_text("Plain text"), "Plain text");
+        assert_eq!(unescape_ical_text(""), "");
+
+        // Unknown escape sequences - keep the backslash
+        assert_eq!(unescape_ical_text(r"Unknown\x escape"), r"Unknown\x escape");
+    }
+
+    // Test iCalendar line unfolding per RFC5545
+    #[test]
+    fn test_unfold_ical() {
+        // LF + space continuation (preserves trailing space before fold)
+        assert_eq!(unfold_ical("YMCA of the \n East Bay"), "YMCA of the East Bay");
+
+        // LF + tab continuation
+        assert_eq!(unfold_ical("Line one \n\tLine two"), "Line one Line two");
+
+        // CRLF + space continuation
+        assert_eq!(
+            unfold_ical("YMCA of the \r\n East Bay"),
+            "YMCA of the East Bay"
+        );
+
+        // Multiple continuations
+        assert_eq!(
+            unfold_ical("Part A \n Part B \n Part C"),
+            "Part A Part B Part C"
+        );
+
+        // Regular line breaks (no continuation) are preserved
+        assert_eq!(unfold_ical("Line 1\nLine 2\nLine 3"), "Line 1\nLine 2\nLine 3");
+
+        // Mixed: some folds, some regular breaks
+        assert_eq!(
+            unfold_ical("Folded \n here\nNew line\nAlso folded \n here"),
+            "Folded here\nNew line\nAlso folded here"
+        );
+
+        // No folds - passthrough
+        assert_eq!(unfold_ical("Simple line"), "Simple line");
+        assert_eq!(unfold_ical(""), "");
+
+        // The key bug case: trailing space before fold must be preserved
+        assert_eq!(
+            unfold_ical("LOCATION:Street \n Address"),
+            "LOCATION:Street Address"
+        );
     }
 }

@@ -186,8 +186,8 @@ async fn show_raw_events(
                 println!("  [ical crate] parsed {} events", cal.events.len());
                 for event in cal.events {
                     for prop in &event.properties {
-                        if prop.name == "DTSTART" {
-                            println!("  [ical crate] DTSTART value: {:?}", prop.value);
+                        if matches!(prop.name.as_str(), "SUMMARY" | "LOCATION" | "DTSTART") {
+                            println!("  [ical crate] {} = {:?}", prop.name, prop.value);
                         }
                     }
                 }
