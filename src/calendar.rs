@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use chrono::{DateTime, Duration, Local, NaiveDateTime, TimeZone};
+use calcard::icalendar::{
+    ICalendar, ICalendarComponentType, ICalendarEntry, ICalendarParameterName,
+    ICalendarParameterValue, ICalendarParticipationStatus, ICalendarProperty, ICalendarValue,
+    ICalendarValueType, dates::TimeOrDelta,
+};
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use chrono_tz::Tz;
 use futures_util::StreamExt;
-use ical::parser::ical::IcalParser;
 use regex::Regex;
-use rrule::{RRuleSet, Tz};
 use zbus::{Connection, zvariant};
 
 /// User's attendance status for a meeting
@@ -479,223 +483,105 @@ async fn get_meetings_from_dbus(
             Err(_) => continue,
         };
 
-        // Step 4: Parse iCalendar objects and extract meetings
+        // Step 4: Parse iCalendar objects and extract meetings using calcard
         for ics_object in ics_objects {
             // EDS returns raw VEVENT objects without VCALENDAR wrapper
-            // The ical crate needs the wrapper, so add it if missing
             let wrapped = if ics_object.trim().starts_with("BEGIN:VEVENT") {
-                format!("BEGIN:VCALENDAR\nVERSION:2.0\n{ics_object}\nEND:VCALENDAR")
+                format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\n{ics_object}\r\nEND:VCALENDAR")
             } else {
                 ics_object.clone()
             };
 
-            // Pre-unfold lines to work around ical crate bug that loses trailing
-            // spaces at fold points (it calls trim_end() before joining lines)
-            let unfolded = unfold_ical(&wrapped);
+            // Parse with calcard (handles line unfolding and text unescaping)
+            let Ok(calendar) = ICalendar::parse(&wrapped) else {
+                continue;
+            };
 
-            if let Some(Ok(calendar)) = IcalParser::new(unfolded.as_bytes()).next() {
-                for event in calendar.events {
-                    // Check if this is an all-day event (DTSTART has VALUE=DATE)
-                    let dtstart_prop = event.properties.iter().find(|p| p.name == "DTSTART");
-                    let is_all_day = dtstart_prop.is_some_and(|p| {
-                        // Check if VALUE=DATE is in the parameters or if the value is just a date (8 digits)
-                        let has_date_param = p.params.as_ref().is_some_and(|params| {
-                            params.iter().any(|(name, values)| {
-                                name == "VALUE" && values.iter().any(|v| v == "DATE")
-                            })
+            // Get the local timezone for expansion
+            let local_tz = localzone::get_local_zone()
+                .and_then(|name| chrono_tz::Tz::from_str_insensitive(&name).ok())
+                .unwrap_or(chrono_tz::Tz::UTC);
+
+            // Expand recurring events (handles RRULE, EXDATE, RDATE)
+            let expanded = calendar.expand_dates(local_tz, 100);
+
+            for event in expanded.events {
+                // Get the component for this event
+                let Some(comp) = calendar.components.get(event.comp_id as usize) else {
+                    continue;
+                };
+
+                // Skip non-events
+                if !matches!(comp.component_type, ICalendarComponentType::VEvent) {
+                    continue;
+                }
+
+                // Convert start time to local
+                let start: DateTime<Local> = event.start.with_timezone(&Local);
+
+                // Convert end time to local (handle both Time and Delta variants)
+                let end: DateTime<Local> = match event.end {
+                    TimeOrDelta::Time(t) => t.with_timezone(&Local),
+                    TimeOrDelta::Delta(d) => start + d,
+                };
+
+                // Filter by time range
+                if !should_include_meeting(start, end, now, query_start) {
+                    continue;
+                }
+
+                // Extract properties from the component
+                let uid = extract_text_property(comp, &ICalendarProperty::Uid).unwrap_or_default();
+                let title = extract_text_property(comp, &ICalendarProperty::Summary)
+                    .unwrap_or_else(|| "Untitled Event".to_string());
+                let location = extract_text_property(comp, &ICalendarProperty::Location);
+                let description = extract_text_property(comp, &ICalendarProperty::Description);
+
+                // Check if this is an all-day event (DTSTART has VALUE=DATE or no time part)
+                let is_all_day = comp
+                    .property(&ICalendarProperty::Dtstart)
+                    .is_some_and(|prop| {
+                        // Check VALUE=DATE parameter
+                        let has_date_param = prop.params.iter().any(|p| {
+                            matches!(p.name, ICalendarParameterName::Value)
+                                && matches!(
+                                    p.value,
+                                    ICalendarParameterValue::Value(ICalendarValueType::Date)
+                                )
                         });
-                        let value_is_date = p.value.as_ref().is_some_and(|v| {
-                            let v = v.trim();
-                            v.len() == 8 && v.chars().all(|c| c.is_ascii_digit())
-                        });
-                        has_date_param || value_is_date
+                        // Check if value has no time component
+                        let no_time = prop.values.iter().any(|v| {
+                        matches!(v, ICalendarValue::PartialDateTime(pdt) if pdt.hour.is_none())
+                    });
+                        has_date_param || no_time
                     });
 
-                    // Check for RRULE (recurring event)
-                    let rrule_prop = event.properties.iter().find(|p| p.name == "RRULE");
+                // Parse attendance status from ATTENDEE entries
+                let attendance_status =
+                    parse_attendance_status_calcard(&comp.entries, &user_emails);
 
-                    // Check for RECURRENCE-ID (this is a modified instance, not the master)
-                    let recurrence_id = event.properties.iter().find(|p| p.name == "RECURRENCE-ID");
+                // Generate unique ID for recurring instances
+                let meeting_uid = if comp
+                    .entries
+                    .iter()
+                    .any(|e| matches!(e.name, ICalendarProperty::Rrule))
+                {
+                    format!("{}@{}", uid, start.format("%Y%m%dT%H%M%S"))
+                } else {
+                    uid
+                };
 
-                    // Parse attendance status from ATTENDEE properties
-                    let attendance_status =
-                        parse_attendance_status(&event.properties, &user_emails);
-
-                    // Extract common meeting properties
-                    let uid = event
-                        .properties
-                        .iter()
-                        .find(|p| p.name == "UID")
-                        .and_then(|p| p.value.as_ref())
-                        .cloned()
-                        .unwrap_or_default();
-
-                    let title = event
-                        .properties
-                        .iter()
-                        .find(|p| p.name == "SUMMARY")
-                        .and_then(|p| p.value.as_ref())
-                        .map_or_else(|| "Untitled Event".to_string(), |s| unescape_ical_text(s));
-
-                    let location = event
-                        .properties
-                        .iter()
-                        .find(|p| p.name == "LOCATION")
-                        .and_then(|p| p.value.as_ref())
-                        .map(|s| unescape_ical_text(s));
-
-                    let description = event
-                        .properties
-                        .iter()
-                        .find(|p| p.name == "DESCRIPTION")
-                        .and_then(|p| p.value.as_ref())
-                        .map(|s| unescape_ical_text(s));
-
-                    // If this is a modified instance (has RECURRENCE-ID), use it directly
-                    // The DTSTART in a modified instance is the actual occurrence time
-                    if recurrence_id.is_some() {
-                        let start_tzid = dtstart_prop.and_then(extract_timezone_from_prop);
-                        let start_dt = dtstart_prop
-                            .and_then(|p| p.value.as_ref())
-                            .and_then(|v| parse_ical_datetime(v, start_tzid.as_deref()));
-
-                        let dtend_prop = event.properties.iter().find(|p| p.name == "DTEND");
-                        let end_tzid = dtend_prop.and_then(extract_timezone_from_prop);
-                        let end_dt = dtend_prop
-                            .and_then(|p| p.value.as_ref())
-                            .and_then(|v| parse_ical_datetime(v, end_tzid.as_deref()));
-
-                        if let Some(start) = start_dt {
-                            let end = end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
-
-                            if should_include_meeting(start, end, now, query_start) {
-                                all_meetings.push(Meeting {
-                                    uid: uid.clone(),
-                                    title: title.clone(),
-                                    start,
-                                    end,
-                                    location: location.clone(),
-                                    description: description.clone(),
-                                    calendar_uid: source_uid.clone(),
-                                    is_all_day,
-                                    attendance_status,
-                                });
-                            }
-                        }
-                        continue;
-                    }
-
-                    // If this is a recurring event (has RRULE), expand it
-                    if let Some(rrule_val) = rrule_prop.and_then(|p| p.value.as_ref()) {
-                        // Get DTSTART with timezone info for rrule
-                        let dtstart_with_tz = dtstart_prop.map(|p| {
-                            let tz = extract_timezone_from_prop(p);
-                            let value = p.value.as_deref().unwrap_or_default();
-                            (value, tz)
-                        });
-
-                        // Get duration from DTEND or DURATION
-                        let duration = {
-                            let start_tzid = dtstart_prop.and_then(extract_timezone_from_prop);
-                            let start_dt = dtstart_prop
-                                .and_then(|p| p.value.as_ref())
-                                .and_then(|v| parse_ical_datetime(v, start_tzid.as_deref()));
-                            let dtend_prop = event.properties.iter().find(|p| p.name == "DTEND");
-                            let end_tzid = dtend_prop.and_then(extract_timezone_from_prop);
-                            let end_dt = dtend_prop
-                                .and_then(|p| p.value.as_ref())
-                                .and_then(|v| parse_ical_datetime(v, end_tzid.as_deref()));
-
-                            match (start_dt, end_dt) {
-                                (Some(s), Some(e)) => e.signed_duration_since(s),
-                                _ => Duration::hours(1),
-                            }
-                        };
-
-                        // Collect EXDATE values
-                        let exdates: Vec<&str> = event
-                            .properties
-                            .iter()
-                            .filter(|p| p.name == "EXDATE")
-                            .filter_map(|p| p.value.as_deref())
-                            .collect();
-
-                        // Expand the RRULE
-                        if let Some((dtstart_val, tz)) = dtstart_with_tz {
-                            let occurrences = expand_rrule(
-                                dtstart_val,
-                                rrule_val,
-                                &exdates,
-                                tz.as_deref(),
-                                query_start,
-                                query_end,
-                            );
-
-                            for occurrence_start in occurrences {
-                                let occurrence_end = occurrence_start + duration;
-
-                                if should_include_meeting(
-                                    occurrence_start,
-                                    occurrence_end,
-                                    now,
-                                    query_start,
-                                ) {
-                                    all_meetings.push(Meeting {
-                                        uid: format!(
-                                            "{}@{}",
-                                            uid,
-                                            occurrence_start.format("%Y%m%dT%H%M%S")
-                                        ),
-                                        title: title.clone(),
-                                        start: occurrence_start,
-                                        end: occurrence_end,
-                                        location: location.clone(),
-                                        description: description.clone(),
-                                        calendar_uid: source_uid.clone(),
-                                        is_all_day,
-                                        attendance_status,
-                                    });
-                                }
-                            }
-                        }
-                        continue;
-                    }
-
-                    // Non-recurring event: use DTSTART directly
-                    let start_tzid = dtstart_prop.and_then(extract_timezone_from_prop);
-                    let start_dt = dtstart_prop
-                        .and_then(|p| p.value.as_ref())
-                        .and_then(|v| parse_ical_datetime(v, start_tzid.as_deref()));
-
-                    let dtend_prop = event
-                        .properties
-                        .iter()
-                        .find(|p| p.name == "DTEND" || p.name == "DURATION");
-                    let end_tzid = dtend_prop.and_then(extract_timezone_from_prop);
-                    let end_dt = dtend_prop
-                        .and_then(|p| p.value.as_ref())
-                        .and_then(|v| parse_ical_datetime(v, end_tzid.as_deref()));
-
-                    if let Some(start) = start_dt {
-                        // Use end time if available, otherwise assume 1 hour duration
-                        let meeting_end =
-                            end_dt.unwrap_or_else(|| start + chrono::Duration::hours(1));
-
-                        if should_include_meeting(start, meeting_end, now, query_start) {
-                            all_meetings.push(Meeting {
-                                uid,
-                                title,
-                                start,
-                                end: meeting_end,
-                                location,
-                                description,
-                                calendar_uid: source_uid.clone(),
-                                is_all_day,
-                                attendance_status,
-                            });
-                        }
-                    }
-                }
+                all_meetings.push(Meeting {
+                    uid: meeting_uid,
+                    title,
+                    start,
+                    end,
+                    location,
+                    description,
+                    calendar_uid: source_uid.clone(),
+                    is_all_day,
+                    attendance_status,
+                });
             }
         }
     }
@@ -914,80 +800,6 @@ fn parse_backend_name(data: &str) -> Option<String> {
     None
 }
 
-/// Parse attendance status from ATTENDEE properties
-/// Matches the user's email addresses against ATTENDEE entries and extracts PARTSTAT
-fn parse_attendance_status(
-    properties: &[ical::property::Property],
-    user_emails: &[String],
-) -> AttendanceStatus {
-    // If no user emails provided, we can't determine attendance
-    if user_emails.is_empty() {
-        return AttendanceStatus::None;
-    }
-
-    // Normalize user emails to lowercase for comparison
-    let user_emails_lower: Vec<String> = user_emails.iter().map(|e| e.to_lowercase()).collect();
-
-    // Find all ATTENDEE properties
-    for prop in properties.iter().filter(|p| p.name == "ATTENDEE") {
-        let params = prop.params.as_ref();
-
-        // Extract email from ATTENDEE - check EMAIL parameter first, then mailto: value
-        let attendee_email = params
-            .and_then(|params| {
-                params.iter().find_map(|(name, values)| {
-                    if name == "EMAIL" {
-                        values.first().map(|v| v.to_lowercase())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .or_else(|| {
-                // Fall back to extracting from mailto: in the value
-                prop.value.as_ref().and_then(|v| {
-                    let v_lower = v.to_lowercase();
-                    if v_lower.starts_with("mailto:") {
-                        Some(v_lower.trim_start_matches("mailto:").to_string())
-                    } else {
-                        None
-                    }
-                })
-            });
-
-        // Check if this attendee matches any of the user's emails
-        let is_user = attendee_email
-            .as_ref()
-            .is_some_and(|email| user_emails_lower.iter().any(|ue| ue == email));
-
-        if is_user {
-            // Extract PARTSTAT from parameters
-            let partstat = params.and_then(|params| {
-                params.iter().find_map(|(name, values)| {
-                    if name == "PARTSTAT" {
-                        values.first().map(String::as_str)
-                    } else {
-                        None
-                    }
-                })
-            });
-
-            if let Some(status) = partstat {
-                return match status.to_uppercase().as_str() {
-                    "ACCEPTED" => AttendanceStatus::Accepted,
-                    "TENTATIVE" => AttendanceStatus::Tentative,
-                    "DECLINED" => AttendanceStatus::Declined,
-                    "NEEDS-ACTION" => AttendanceStatus::NeedsAction,
-                    _ => AttendanceStatus::None,
-                };
-            }
-        }
-    }
-
-    // No matching ATTENDEE found - this is likely a personal event or user is organizer
-    AttendanceStatus::None
-}
-
 /// Determine if a meeting should be included based on its timing.
 /// Returns true if the meeting is either:
 /// - Future (starts after now)
@@ -1005,6 +817,87 @@ fn should_include_meeting(
     (is_future || is_in_progress) && start < end
 }
 
+/// Extract text value from a calcard component property
+fn extract_text_property(
+    comp: &calcard::icalendar::ICalendarComponent,
+    prop: &ICalendarProperty,
+) -> Option<String> {
+    comp.property(prop).and_then(|entry| {
+        entry.values.iter().find_map(|v| match v {
+            ICalendarValue::Text(s) => Some(s.clone()),
+            _ => None,
+        })
+    })
+}
+
+/// Parse attendance status from calcard ATTENDEE entries
+fn parse_attendance_status_calcard(
+    entries: &[ICalendarEntry],
+    user_emails: &[String],
+) -> AttendanceStatus {
+    if user_emails.is_empty() {
+        return AttendanceStatus::None;
+    }
+
+    let user_emails_lower: Vec<String> = user_emails.iter().map(|e| e.to_lowercase()).collect();
+
+    // Find ATTENDEE entries
+    for entry in entries
+        .iter()
+        .filter(|e| matches!(e.name, ICalendarProperty::Attendee))
+    {
+        // Extract email from parameters or value
+        let attendee_email = entry
+            .params
+            .iter()
+            .find_map(|p| {
+                if matches!(p.name, ICalendarParameterName::Email)
+                    && let ICalendarParameterValue::Text(email) = &p.value
+                {
+                    return Some(email.to_lowercase());
+                }
+                None
+            })
+            .or_else(|| {
+                // Fall back to extracting from mailto: in the value
+                entry.values.iter().find_map(|v| {
+                    if let ICalendarValue::Uri(calcard::icalendar::Uri::Location(uri_str)) = v {
+                        let uri = uri_str.to_lowercase();
+                        if uri.starts_with("mailto:") {
+                            return Some(uri.trim_start_matches("mailto:").to_string());
+                        }
+                    }
+                    None
+                })
+            });
+
+        // Check if this attendee matches any of the user's emails
+        let is_user = attendee_email
+            .as_ref()
+            .is_some_and(|email| user_emails_lower.iter().any(|ue| ue == email));
+
+        if is_user {
+            // Extract PARTSTAT from parameters
+            for param in &entry.params {
+                if matches!(param.name, ICalendarParameterName::Partstat)
+                    && let ICalendarParameterValue::Partstat(status) = &param.value
+                {
+                    return match status {
+                        ICalendarParticipationStatus::Accepted => AttendanceStatus::Accepted,
+                        ICalendarParticipationStatus::Tentative => AttendanceStatus::Tentative,
+                        ICalendarParticipationStatus::Declined => AttendanceStatus::Declined,
+                        ICalendarParticipationStatus::NeedsAction => AttendanceStatus::NeedsAction,
+                        _ => AttendanceStatus::None,
+                    };
+                }
+            }
+        }
+    }
+
+    AttendanceStatus::None
+}
+
+#[allow(dead_code)] // Used by tests
 fn parse_ical_datetime(value: &str, tzid: Option<&str>) -> Option<DateTime<Local>> {
     // The value might be in formats like:
     // - "20240221T123000" (local time)
@@ -1063,107 +956,19 @@ fn parse_ical_datetime(value: &str, tzid: Option<&str>) -> Option<DateTime<Local
     None
 }
 
-/// Extract timezone from an iCal property's TZID parameter
-fn extract_timezone_from_prop(prop: &ical::property::Property) -> Option<String> {
-    prop.params.as_ref().and_then(|params| {
-        params.iter().find_map(|(name, values)| {
-            if name == "TZID" {
-                values.first().cloned()
-            } else {
-                None
-            }
-        })
-    })
-}
-
-/// Unfold iCalendar long lines per RFC5545.
-///
-/// In iCalendar, long lines are folded by inserting CRLF (or LF) followed by
-/// a single whitespace character (space or tab). Unfolding removes the line
-/// break and the leading whitespace, joining the continuation to the previous line.
-///
-/// The `ical` crate has a bug where it calls `trim_end()` on lines before
-/// checking for continuations, which strips trailing spaces at fold points.
-/// This function correctly preserves those spaces.
-fn unfold_ical(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\r' && chars.peek() == Some(&'\n') {
-            // CRLF - check for fold continuation
-            chars.next(); // consume \n
-            if matches!(chars.peek(), Some(' ' | '\t')) {
-                chars.next(); // consume the fold whitespace, continue line
-            } else {
-                result.push('\n'); // regular line break (normalize to LF)
-            }
-        } else if c == '\n' {
-            // LF only - check for fold continuation
-            if matches!(chars.peek(), Some(' ' | '\t')) {
-                chars.next(); // consume the fold whitespace, continue line
-            } else {
-                result.push('\n'); // regular line break
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
-}
-
-/// Unescape iCalendar TEXT property values per RFC5545.
-///
-/// In iCalendar, TEXT values escape these characters:
-/// - `\,` → `,` (comma)
-/// - `\;` → `;` (semicolon)
-/// - `\\` → `\` (backslash)
-/// - `\n` or `\N` → newline
-fn unescape_ical_text(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.peek() {
-                Some(',') => {
-                    result.push(',');
-                    chars.next();
-                }
-                Some(';') => {
-                    result.push(';');
-                    chars.next();
-                }
-                Some('\\') => {
-                    result.push('\\');
-                    chars.next();
-                }
-                Some('n' | 'N') => {
-                    result.push('\n');
-                    chars.next();
-                }
-                _ => result.push(c), // Keep backslash if not a known escape
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
-/// Parse an iCal timezone string to rrule `Tz` timezone.
+/// Parse an iCal timezone string to `chrono_tz::Tz`.
 ///
 /// Supports all IANA timezone identifiers (e.g., `America/New_York`, `Europe/London`)
 /// via chrono-tz (case-insensitive), plus Windows timezone names
 /// (e.g., "Eastern Standard Time") via the CLDR mapping from the localzone crate.
 ///
 /// Returns `None` and logs a warning if the timezone cannot be parsed.
+#[allow(dead_code)] // Used by tests
 fn parse_ical_timezone(tz_str: &str) -> Option<Tz> {
-    // Helper to convert an IANA timezone string to rrule::Tz
+    // Helper to convert an IANA timezone string to chrono_tz::Tz
     let iana_to_tz = |iana: &str| -> Option<Tz> {
         // Use case-insensitive parsing (requires chrono-tz "case-insensitive" feature)
-        let chrono_tz = chrono_tz::Tz::from_str_insensitive(iana).ok()?;
-        let tz: Tz = chrono_tz.into();
+        let tz = Tz::from_str_insensitive(iana).ok()?;
         // Normalize Etc/UTC to the canonical UTC
         Some(if tz == Tz::Etc__UTC { Tz::UTC } else { tz })
     };
@@ -1211,105 +1016,6 @@ fn parse_ical_timezone(tz_str: &str) -> Option<Tz> {
     }
 
     None
-}
-
-/// Expand a recurring event (RRULE) into individual occurrences within a time range
-#[allow(clippy::format_push_string)]
-fn expand_rrule(
-    dtstart_val: &str,
-    rrule_val: &str,
-    exdates: &[&str],
-    tz_str: Option<&str>,
-    range_start: DateTime<Local>,
-    range_end: DateTime<Local>,
-) -> Vec<DateTime<Local>> {
-    // Parse the timezone
-    let tz = tz_str.and_then(parse_ical_timezone).unwrap_or(Tz::UTC);
-
-    // Parse the DTSTART value (just the time part, e.g., "20251211T080000")
-    let dtstart_str = if dtstart_val.contains(':') {
-        dtstart_val.split(':').next_back().unwrap_or(dtstart_val)
-    } else {
-        dtstart_val
-    };
-
-    // Parse naive datetime
-    let naive_dt = if dtstart_str.len() == 8 && dtstart_str.chars().all(|c| c.is_ascii_digit()) {
-        // Date only
-        NaiveDateTime::parse_from_str(&format!("{dtstart_str}T000000"), "%Y%m%dT%H%M%S").ok()
-    } else {
-        NaiveDateTime::parse_from_str(dtstart_str.trim_end_matches('Z'), "%Y%m%dT%H%M%S").ok()
-    };
-
-    let Some(naive_dt) = naive_dt else {
-        return Vec::new();
-    };
-
-    // Build the DTSTART string for rrule crate
-    // Format: DTSTART;TZID=America/Los_Angeles:20251211T080000
-    let datetime_formatted = naive_dt.format("%Y%m%dT%H%M%S");
-    let dtstart_for_rrule = if tz == Tz::UTC || dtstart_str.ends_with('Z') {
-        format!("DTSTART:{datetime_formatted}Z")
-    } else {
-        format!("DTSTART;TZID={tz}:{datetime_formatted}")
-    };
-
-    // Build the full RRuleSet string
-    let mut rrule_str = format!("{dtstart_for_rrule}\nRRULE:{rrule_val}");
-
-    // Add EXDATE entries
-    for exdate in exdates {
-        // Parse exdate value - extract the datetime part
-        let exdate_val = if exdate.contains(':') {
-            exdate.split(':').next_back().unwrap_or(exdate)
-        } else {
-            exdate
-        };
-
-        // Try to get timezone from EXDATE if present
-        let exdate_tz = if exdate.contains("TZID=") {
-            exdate
-                .split(';')
-                .find(|p| p.starts_with("TZID="))
-                .and_then(|p| p.strip_prefix("TZID="))
-                .and_then(|tz_part| tz_part.split(':').next())
-                .and_then(parse_ical_timezone)
-                .unwrap_or(tz)
-        } else {
-            tz
-        };
-
-        // Format EXDATE for rrule crate
-        let trimmed_val = exdate_val.trim_end_matches('Z');
-        if exdate_tz == Tz::UTC || exdate_val.ends_with('Z') {
-            rrule_str.push_str(&format!("\nEXDATE:{trimmed_val}Z"));
-        } else {
-            rrule_str.push_str(&format!("\nEXDATE;TZID={exdate_tz}:{trimmed_val}"));
-        }
-    }
-
-    // Parse the RRuleSet
-    let rrule_set: RRuleSet = match rrule_str.parse() {
-        Ok(r) => r,
-        Err(_) => return Vec::new(),
-    };
-
-    // Convert range to the rrule timezone
-    let range_start_tz = range_start.with_timezone(&tz);
-    let range_end_tz = range_end.with_timezone(&tz);
-
-    // Get occurrences in the range (limit to 100 to avoid infinite loops)
-    let result = rrule_set
-        .after(range_start_tz)
-        .before(range_end_tz)
-        .all(100);
-
-    // Convert to local time
-    result
-        .dates
-        .into_iter()
-        .map(|dt| dt.with_timezone(&Local))
-        .collect()
 }
 
 /// Extract a meeting URL from the meeting's location or description fields
@@ -1855,10 +1561,7 @@ mod tests {
             parse_ical_timezone("europe/london"),
             Some(Tz::Europe__London)
         );
-        assert_eq!(
-            parse_ical_timezone("Asia/TOKYO"),
-            Some(Tz::Asia__Tokyo)
-        );
+        assert_eq!(parse_ical_timezone("Asia/TOKYO"), Some(Tz::Asia__Tokyo));
     }
 
     // These IANA timezones were not in the original hardcoded list but now work
@@ -2163,77 +1866,5 @@ mod tests {
         // Suppress unused variable warnings for gap/overlap tests
         let _ = gap_result;
         let _ = overlap_result;
-    }
-
-    // Test iCalendar TEXT value unescaping per RFC5545
-    #[test]
-    fn test_unescape_ical_text() {
-        // Escaped commas
-        assert_eq!(unescape_ical_text(r"Hello\, World"), "Hello, World");
-        assert_eq!(unescape_ical_text(r"A\, B\, C"), "A, B, C");
-
-        // Escaped semicolons
-        assert_eq!(unescape_ical_text(r"Part1\; Part2"), "Part1; Part2");
-
-        // Escaped backslashes
-        assert_eq!(unescape_ical_text(r"C:\\Users\\Name"), r"C:\Users\Name");
-
-        // Escaped newlines (both \n and \N)
-        assert_eq!(unescape_ical_text(r"Line1\nLine2"), "Line1\nLine2");
-        assert_eq!(unescape_ical_text(r"Line1\NLine2"), "Line1\nLine2");
-
-        // Mixed escapes
-        assert_eq!(
-            unescape_ical_text(r"Title\, with comma\; semicolon\nand newline"),
-            "Title, with comma; semicolon\nand newline"
-        );
-
-        // No escapes - passthrough
-        assert_eq!(unescape_ical_text("Plain text"), "Plain text");
-        assert_eq!(unescape_ical_text(""), "");
-
-        // Unknown escape sequences - keep the backslash
-        assert_eq!(unescape_ical_text(r"Unknown\x escape"), r"Unknown\x escape");
-    }
-
-    // Test iCalendar line unfolding per RFC5545
-    #[test]
-    fn test_unfold_ical() {
-        // LF + space continuation (preserves trailing space before fold)
-        assert_eq!(unfold_ical("YMCA of the \n East Bay"), "YMCA of the East Bay");
-
-        // LF + tab continuation
-        assert_eq!(unfold_ical("Line one \n\tLine two"), "Line one Line two");
-
-        // CRLF + space continuation
-        assert_eq!(
-            unfold_ical("YMCA of the \r\n East Bay"),
-            "YMCA of the East Bay"
-        );
-
-        // Multiple continuations
-        assert_eq!(
-            unfold_ical("Part A \n Part B \n Part C"),
-            "Part A Part B Part C"
-        );
-
-        // Regular line breaks (no continuation) are preserved
-        assert_eq!(unfold_ical("Line 1\nLine 2\nLine 3"), "Line 1\nLine 2\nLine 3");
-
-        // Mixed: some folds, some regular breaks
-        assert_eq!(
-            unfold_ical("Folded \n here\nNew line\nAlso folded \n here"),
-            "Folded here\nNew line\nAlso folded here"
-        );
-
-        // No folds - passthrough
-        assert_eq!(unfold_ical("Simple line"), "Simple line");
-        assert_eq!(unfold_ical(""), "");
-
-        // The key bug case: trailing space before fold must be preserved
-        assert_eq!(
-            unfold_ical("LOCATION:Street \n Address"),
-            "LOCATION:Street Address"
-        );
     }
 }

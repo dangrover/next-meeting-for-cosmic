@@ -3,6 +3,7 @@
 // Debug utility to explore Evolution Data Server calendar data.
 // Run with: cargo run --bin debug_calendars
 
+use calcard::icalendar::{ICalendar, ICalendarProperty, ICalendarValue};
 use std::collections::HashMap;
 use zbus::{
     Connection,
@@ -174,26 +175,45 @@ async fn show_raw_events(
             println!("  ... ({} more lines)", ics.lines().count() - 20);
         }
 
-        // Also show what ical crate parses (wrap in VCALENDAR if needed)
+        // Also show what calcard parses (wrap in VCALENDAR if needed)
         let wrapped = if ics.trim().starts_with("BEGIN:VEVENT") {
-            format!("BEGIN:VCALENDAR\nVERSION:2.0\n{ics}\nEND:VCALENDAR")
+            format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\n{ics}\r\nEND:VCALENDAR")
         } else {
             ics.clone()
         };
-        let parse_result = ical::parser::ical::IcalParser::new(wrapped.as_bytes()).next();
-        match parse_result {
-            Some(Ok(cal)) => {
-                println!("  [ical crate] parsed {} events", cal.events.len());
-                for event in cal.events {
-                    for prop in &event.properties {
-                        if matches!(prop.name.as_str(), "SUMMARY" | "LOCATION" | "DTSTART") {
-                            println!("  [ical crate] {} = {:?}", prop.name, prop.value);
-                        }
+        match ICalendar::parse(&wrapped) {
+            Ok(cal) => {
+                println!("  [calcard] parsed {} components", cal.components.len());
+                for comp in &cal.components {
+                    // Show SUMMARY
+                    if let Some(entry) = comp.property(&ICalendarProperty::Summary) {
+                        let value = entry.values.iter().find_map(|v| {
+                            if let ICalendarValue::Text(s) = v {
+                                Some(s.as_str())
+                            } else {
+                                None
+                            }
+                        });
+                        println!("  [calcard] SUMMARY = {:?}", value);
+                    }
+                    // Show LOCATION
+                    if let Some(entry) = comp.property(&ICalendarProperty::Location) {
+                        let value = entry.values.iter().find_map(|v| {
+                            if let ICalendarValue::Text(s) = v {
+                                Some(s.as_str())
+                            } else {
+                                None
+                            }
+                        });
+                        println!("  [calcard] LOCATION = {:?}", value);
+                    }
+                    // Show DTSTART
+                    if let Some(entry) = comp.property(&ICalendarProperty::Dtstart) {
+                        println!("  [calcard] DTSTART = {:?}", entry.values);
                     }
                 }
             }
-            Some(Err(e)) => println!("  [ical crate] parse error: {e}"),
-            None => println!("  [ical crate] no calendar found"),
+            Err(e) => println!("  [calcard] parse error: {e:?}"),
         }
         println!();
     }

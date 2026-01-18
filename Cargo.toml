@@ -21,11 +21,10 @@ i18n-embed-fl = "0.10"
 rust-embed = "8.7.2"
 tokio = { version = "1.48.0", features = ["full"] }
 zbus = { version = "3.14", features = ["tokio", "xml"] }
-ical = "0.8"
+calcard = "0.3"
 chrono = "0.4"
 chrono-tz = { version = "0.10", features = ["case-insensitive"] }
 localzone = { version = "0.3", features = ["win_zones"] }
-rrule = "0.14"
 serde = { version = "1.0", features = ["derive"] }
 regex = "1"
 xdg = "3"
