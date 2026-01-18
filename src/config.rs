@@ -63,6 +63,24 @@ pub enum InProgressMeeting {
     Within30m,
 }
 
+/// Filter events by how far in the future they are
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+pub enum TimeUntilFilter {
+    /// Show all events (default)
+    #[default]
+    All,
+    /// Show events within 3 hours
+    Within3Hours,
+    /// Show events within 6 hours
+    Within6Hours,
+    /// Show events on the same day
+    SameDay,
+    /// Show events within 1 day (24 hours)
+    Within1Day,
+    /// Show events within 2 days (48 hours)
+    Within2Days,
+}
+
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
 #[version = 1]
 #[allow(clippy::struct_excessive_bools)]
@@ -101,6 +119,8 @@ pub struct Config {
     pub additional_emails: Vec<String>,
     /// Whether to show meetings that have already started.
     pub show_in_progress: InProgressMeeting,
+    /// Filter events by how far in the future they are.
+    pub time_until_filter: TimeUntilFilter,
 }
 
 impl Default for Config {
@@ -133,6 +153,7 @@ impl Default for Config {
             event_status_filter: EventStatusFilter::default(),
             additional_emails: Vec::new(),
             show_in_progress: InProgressMeeting::default(),
+            time_until_filter: TimeUntilFilter::default(),
         }
     }
 }

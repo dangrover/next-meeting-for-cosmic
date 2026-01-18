@@ -62,10 +62,10 @@ pub enum PopupPage {
 }
 
 impl AppModel {
-    /// Get meetings filtered by current settings (all-day events, attendance status, in-progress)
+    /// Get meetings filtered by current settings (all-day events, attendance status, in-progress, time until)
     fn filtered_meetings(&self) -> Vec<&Meeting> {
         use crate::calendar::AttendanceStatus;
-        use crate::config::EventStatusFilter;
+        use crate::config::{EventStatusFilter, TimeUntilFilter};
         use chrono::Local;
 
         let now = Local::now();
@@ -88,6 +88,29 @@ impl AppModel {
                         InProgressMeeting::Within10m => minutes_since_start <= 10,
                         InProgressMeeting::Within15m => minutes_since_start <= 15,
                         InProgressMeeting::Within30m => minutes_since_start <= 30,
+                    };
+                    if !include {
+                        return false;
+                    }
+                }
+
+                // Filter by time until (how far in the future)
+                if m.start > now {
+                    let include = match self.config.time_until_filter {
+                        TimeUntilFilter::All => true,
+                        TimeUntilFilter::Within3Hours => {
+                            m.start.signed_duration_since(now).num_hours() < 3
+                        }
+                        TimeUntilFilter::Within6Hours => {
+                            m.start.signed_duration_since(now).num_hours() < 6
+                        }
+                        TimeUntilFilter::SameDay => m.start.date_naive() == now.date_naive(),
+                        TimeUntilFilter::Within1Day => {
+                            m.start.signed_duration_since(now).num_hours() < 24
+                        }
+                        TimeUntilFilter::Within2Days => {
+                            m.start.signed_duration_since(now).num_hours() < 48
+                        }
                     };
                     if !include {
                         return false;
@@ -1031,7 +1054,7 @@ impl AppModel {
     /// Filter events settings page
     #[allow(clippy::too_many_lines)]
     fn view_events_to_show_settings_page(&self) -> Element<'_, Message> {
-        use crate::config::EventStatusFilter;
+        use crate::config::{EventStatusFilter, TimeUntilFilter};
 
         let space = spacing();
         let mut content = widget::column::with_capacity(6)
@@ -1083,6 +1106,24 @@ impl AppModel {
             InProgressMeeting::Within30m => Some(4),
         };
 
+        // Time until filter dropdown options
+        let time_until_options = vec![
+            fl!("time-until-all"),
+            fl!("time-until-3h"),
+            fl!("time-until-6h"),
+            fl!("time-until-same-day"),
+            fl!("time-until-1d"),
+            fl!("time-until-2d"),
+        ];
+        let time_until_idx = match self.config.time_until_filter {
+            TimeUntilFilter::All => Some(0),
+            TimeUntilFilter::Within3Hours => Some(1),
+            TimeUntilFilter::Within6Hours => Some(2),
+            TimeUntilFilter::SameDay => Some(3),
+            TimeUntilFilter::Within1Day => Some(4),
+            TimeUntilFilter::Within2Days => Some(5),
+        };
+
         // Email summary for navigation link
         let email_count = self.config.additional_emails.len();
         let email_summary = fl!("additional-emails-summary", count = email_count);
@@ -1111,6 +1152,19 @@ impl AppModel {
                         in_progress_options,
                         in_progress_idx,
                         Message::SetInProgressMeeting,
+                    ))
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill),
+            )
+            // Time until filter dropdown
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("time-until-section")))
+                    .push(widget::horizontal_space())
+                    .push(widget::dropdown(
+                        time_until_options,
+                        time_until_idx,
+                        Message::SetTimeUntilFilter,
                     ))
                     .align_y(cosmic::iced::Alignment::Center)
                     .width(Length::Fill),
@@ -1567,6 +1621,7 @@ pub enum Message {
     SetShowAllDayEvents(bool),
     SetInProgressMeeting(usize),
     SetEventStatusFilter(usize),
+    SetTimeUntilFilter(usize),
     UpdateEmail(usize, String),
     AddEmail,
     RemoveEmail(usize),
@@ -2226,6 +2281,20 @@ impl cosmic::Application for AppModel {
                     1 => EventStatusFilter::Accepted,
                     2 => EventStatusFilter::AcceptedOrTentative,
                     _ => EventStatusFilter::All, // 0 or any other value
+                };
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetTimeUntilFilter(idx) => {
+                use crate::config::TimeUntilFilter;
+                self.config.time_until_filter = match idx {
+                    1 => TimeUntilFilter::Within3Hours,
+                    2 => TimeUntilFilter::Within6Hours,
+                    3 => TimeUntilFilter::SameDay,
+                    4 => TimeUntilFilter::Within1Day,
+                    5 => TimeUntilFilter::Within2Days,
+                    _ => TimeUntilFilter::All, // 0 or any other value
                 };
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
