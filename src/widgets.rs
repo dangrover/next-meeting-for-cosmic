@@ -36,58 +36,6 @@ pub fn secondary_text_style(theme: &cosmic::Theme) -> cosmic::iced_widget::text:
     }
 }
 
-/// Featured item button style: transparent background, rounded rect hover matching menu items
-pub fn featured_button_style() -> cosmic::theme::Button {
-    cosmic::theme::Button::Custom {
-        active: Box::new(|_focused, theme| {
-            let cosmic = theme.cosmic();
-            cosmic::widget::button::Style {
-                background: None,
-                text_color: Some(cosmic.on_bg_color().into()),
-                icon_color: Some(cosmic.on_bg_color().into()),
-                border_radius: cosmic.corner_radii.radius_s.into(),
-                ..Default::default()
-            }
-        }),
-        disabled: Box::new(|theme| {
-            let cosmic = theme.cosmic();
-            cosmic::widget::button::Style {
-                background: None,
-                text_color: Some(cosmic.on_bg_color().into()),
-                icon_color: Some(cosmic.on_bg_color().into()),
-                border_radius: cosmic.corner_radii.radius_s.into(),
-                ..Default::default()
-            }
-        }),
-        hovered: Box::new(|_focused, theme| {
-            let cosmic = theme.cosmic();
-            // Use text_button.hover to match AppletMenu hover color
-            cosmic::widget::button::Style {
-                background: Some(cosmic::iced::Background::Color(
-                    cosmic.text_button.hover.into(),
-                )),
-                text_color: Some(cosmic.on_bg_color().into()),
-                icon_color: Some(cosmic.on_bg_color().into()),
-                border_radius: cosmic.corner_radii.radius_s.into(),
-                ..Default::default()
-            }
-        }),
-        pressed: Box::new(|_focused, theme| {
-            let cosmic = theme.cosmic();
-            // Use text_button.pressed to match AppletMenu pressed color
-            cosmic::widget::button::Style {
-                background: Some(cosmic::iced::Background::Color(
-                    cosmic.text_button.pressed.into(),
-                )),
-                text_color: Some(cosmic.on_bg_color().into()),
-                icon_color: Some(cosmic.on_bg_color().into()),
-                border_radius: cosmic.corner_radii.radius_s.into(),
-                ..Default::default()
-            }
-        }),
-    }
-}
-
 /// Creates a settings page header with back button and title
 pub fn settings_page_header<'a, M: Clone + 'static>(
     back_label: String,

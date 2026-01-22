@@ -81,6 +81,18 @@ pub enum TimeUntilFilter {
     Within2Days,
 }
 
+/// Action to take when opening the calendar app
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+pub enum CalendarAppAction {
+    /// Open the system default calendar app (default)
+    #[default]
+    SystemDefault,
+    /// Run a custom command
+    RunCommand,
+    /// Open a URL
+    OpenUrl,
+}
+
 #[derive(Debug, Clone, CosmicConfigEntry, Eq, PartialEq)]
 #[version = 1]
 #[allow(clippy::struct_excessive_bools)]
@@ -121,6 +133,14 @@ pub struct Config {
     pub show_in_progress: InProgressMeeting,
     /// Filter events by how far in the future they are.
     pub time_until_filter: TimeUntilFilter,
+    /// Whether to show the "Open Calendar" menu item.
+    pub show_calendar_button: bool,
+    /// Action to take when opening the calendar.
+    pub calendar_app_action: CalendarAppAction,
+    /// Custom command to run when opening the calendar.
+    pub calendar_app_command: String,
+    /// URL to open when opening the calendar.
+    pub calendar_app_url: String,
 }
 
 impl Default for Config {
@@ -154,6 +174,10 @@ impl Default for Config {
             additional_emails: Vec::new(),
             show_in_progress: InProgressMeeting::default(),
             time_until_filter: TimeUntilFilter::default(),
+            show_calendar_button: true,
+            calendar_app_action: CalendarAppAction::default(),
+            calendar_app_command: "gnome-calendar".to_string(),
+            calendar_app_url: "https://calendar.google.com".to_string(),
         }
     }
 }

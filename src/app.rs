@@ -8,9 +8,8 @@ use crate::formatting::{
     parse_hex_color,
 };
 use crate::widgets::{
-    calendar_color_dot, display_format_options, email_input_id, featured_button_style,
-    secondary_text_style, settings_nav_row, settings_nav_row_with_icon, settings_page_header,
-    spacing,
+    calendar_color_dot, display_format_options, email_input_id, secondary_text_style,
+    settings_nav_row, settings_nav_row_with_icon, settings_page_header, spacing,
 };
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::{Length, Limits, Subscription, clipboard, window::Id};
@@ -51,6 +50,7 @@ pub enum PopupPage {
     Settings,
     Calendars,
     RefreshSettings,
+    CalendarAppSettings,
     EventsToShowSettings,
     EmailSettings,
     PanelDisplaySettings,
@@ -211,8 +211,6 @@ impl AppModel {
             };
 
             // Next meeting content block with optional Join button
-            // Uses custom style: transparent background, rounded rect on hover
-            let next_meeting_uid = meeting.uid.clone();
             let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
 
             // Build meeting info column with title, time, and optional location
@@ -247,11 +245,9 @@ impl AppModel {
                     meeting_column.into()
                 };
 
-            let meeting_info = widget::button::custom(meeting_content)
-                .class(featured_button_style())
+            let meeting_info = widget::container(meeting_content)
                 .padding([space.space_xxs, space.space_xs])
-                .width(Length::Fill)
-                .on_press(Message::OpenEvent(next_meeting_uid));
+                .width(Length::Fill);
 
             if let Some(url) = meeting_url {
                 // Row with meeting info and Join button (with horizontal padding)
@@ -319,7 +315,6 @@ impl AppModel {
                 let secondary_text = cosmic::theme::Text::Custom(secondary_text_style);
                 for meeting in filtered.iter().skip(1).take(upcoming_count) {
                     let time_str = format_time(&meeting.start, false);
-                    let uid = meeting.uid.clone();
 
                     // Build row with optional calendar indicator
                     let mut row = widget::row::with_capacity(4)
@@ -346,8 +341,7 @@ impl AppModel {
                         )
                         .push(widget::text::body(time_str).class(secondary_text));
 
-                    content = content
-                        .push(cosmic::applet::menu_button(row).on_press(Message::OpenEvent(uid)));
+                    content = content.push(cosmic::applet::padded_control(row));
                 }
             }
         } else if !self.has_loaded_meetings {
@@ -386,18 +380,22 @@ impl AppModel {
         );
 
         // Bottom actions section (Open calendar + Settings)
-        content = content.push(
-            cosmic::applet::menu_button(
-                widget::row::with_capacity(3)
-                    .push(widget::icon::from_name("office-calendar-symbolic").size(space.space_m))
-                    .push(widget::text::body(fl!("open-calendar")))
-                    .push(widget::horizontal_space())
-                    .spacing(space.space_xs)
-                    .align_y(cosmic::iced::Alignment::Center)
-                    .width(Length::Fill),
-            )
-            .on_press(Message::OpenCalendar),
-        );
+        if self.config.show_calendar_button {
+            content = content.push(
+                cosmic::applet::menu_button(
+                    widget::row::with_capacity(3)
+                        .push(
+                            widget::icon::from_name("office-calendar-symbolic").size(space.space_m),
+                        )
+                        .push(widget::text::body(fl!("open-calendar")))
+                        .push(widget::horizontal_space())
+                        .spacing(space.space_xs)
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill),
+                )
+                .on_press(Message::OpenCalendar),
+            );
+        }
 
         content = content.push(
             cosmic::applet::menu_button(
@@ -506,6 +504,12 @@ impl AppModel {
                 fl!("refresh-section"),
                 refresh_summary,
                 Message::Navigate(PopupPage::RefreshSettings),
+            ))
+            .add(settings_nav_row_with_icon(
+                "office-calendar-symbolic",
+                fl!("calendar-app-section"),
+                String::new(),
+                Message::Navigate(PopupPage::CalendarAppSettings),
             ));
 
         content = content.push(calendars_section);
@@ -1393,6 +1397,120 @@ impl AppModel {
         content.into()
     }
 
+    /// Calendar app settings page
+    fn view_calendar_app_settings_page(&self) -> Element<'_, Message> {
+        use crate::config::CalendarAppAction;
+
+        let space = spacing();
+        let mut content = widget::column::with_capacity(8)
+            .padding(space.space_xs)
+            .spacing(space.space_xs)
+            .width(Length::Fill);
+
+        // Back button header
+        content = content.push(
+            widget::column::with_capacity(2)
+                .push(
+                    widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                        .extra_small()
+                        .padding(space.space_none)
+                        .label(fl!("settings"))
+                        .spacing(space.space_xxxs)
+                        .class(cosmic::theme::Button::Link)
+                        .on_press(Message::Navigate(PopupPage::Settings)),
+                )
+                .push(widget::text::title4(fl!("calendar-app-section")))
+                .spacing(space.space_xxs),
+        );
+
+        // Action dropdown options
+        let action_options = vec![
+            fl!("calendar-app-system"),
+            fl!("calendar-app-command"),
+            fl!("calendar-app-url"),
+        ];
+        let action_idx = match self.config.calendar_app_action {
+            CalendarAppAction::SystemDefault => Some(0),
+            CalendarAppAction::RunCommand => Some(1),
+            CalendarAppAction::OpenUrl => Some(2),
+        };
+
+        // Settings group
+        let mut settings_list = widget::list_column()
+            .list_item_padding([space.space_xxs, space.space_xs])
+            // Show calendar button toggle
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("calendar-app-show-button")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::toggler(self.config.show_calendar_button)
+                            .on_toggle(Message::SetShowCalendarButton),
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill),
+            );
+
+        // Only show action options when button is enabled
+        if self.config.show_calendar_button {
+            settings_list = settings_list.add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("calendar-app-action")))
+                    .push(widget::horizontal_space())
+                    .push(widget::dropdown(
+                        action_options,
+                        action_idx,
+                        Message::SetCalendarAppAction,
+                    ))
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill),
+            );
+
+            // Show command input when RunCommand is selected
+            if self.config.calendar_app_action == CalendarAppAction::RunCommand {
+                settings_list = settings_list.add(
+                    widget::row::with_capacity(2)
+                        .push(widget::text::body(fl!("calendar-app-command-label")))
+                        .push(widget::horizontal_space())
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill),
+                );
+                settings_list = settings_list.add(
+                    widget::text_input(
+                        fl!("calendar-app-command-placeholder"),
+                        &self.config.calendar_app_command,
+                    )
+                    .on_input(Message::SetCalendarAppCommand)
+                    .width(Length::Fill),
+                );
+            }
+
+            // Show URL input when OpenUrl is selected
+            if self.config.calendar_app_action == CalendarAppAction::OpenUrl {
+                settings_list = settings_list.add(
+                    widget::row::with_capacity(2)
+                        .push(widget::text::body(fl!("calendar-app-url-label")))
+                        .push(widget::horizontal_space())
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .width(Length::Fill),
+                );
+                settings_list = settings_list.add(
+                    widget::text_input(
+                        fl!("calendar-app-url-placeholder"),
+                        &self.config.calendar_app_url,
+                    )
+                    .on_input(Message::SetCalendarAppUrl)
+                    .width(Length::Fill),
+                );
+            }
+        }
+
+        content = content.push(settings_list);
+        content = content.push(widget::vertical_space().height(space.space_m));
+
+        content.into()
+    }
+
     /// Keyboard shortcut setup page
     #[allow(clippy::unused_self)]
     fn view_keyboard_shortcut_page(&self) -> Element<'_, Message> {
@@ -1551,10 +1669,8 @@ pub fn open_url(url: &str) -> bool {
         .is_ok()
 }
 
-/// Open an event in the user's default calendar application.
-/// For GNOME Calendar, uses --uuid to open the specific event.
-/// For other apps, just opens the calendar application.
-fn open_event_in_calendar(event_uid: &str) {
+/// Open the system default calendar application.
+fn open_system_calendar() {
     // Query the default calendar application
     let desktop_file = std::process::Command::new("xdg-mime")
         .args(["query", "default", "text/calendar"])
@@ -1567,28 +1683,19 @@ fn open_event_in_calendar(event_uid: &str) {
         return;
     }
 
-    // Check if it's GNOME Calendar (supports --uuid flag)
-    // Handle both "gnome-calendar" and "org.gnome.Calendar" naming conventions
-    let lowercase = desktop_file.to_lowercase();
-    if lowercase.contains("gnome-calendar") || lowercase.contains("gnome.calendar") {
-        let _ = std::process::Command::new("gnome-calendar")
-            .arg("--uuid")
-            .arg(event_uid)
-            .spawn();
-    } else {
-        // For other calendar apps, try gtk-launch first, then fall back to gio
-        let gtk_result = std::process::Command::new("gtk-launch")
-            .arg(&desktop_file)
-            .spawn();
+    // Try gtk-launch first (works on GTK-based systems)
+    let gtk_result = std::process::Command::new("gtk-launch")
+        .arg(&desktop_file)
+        .spawn();
 
-        if gtk_result.is_err() {
-            let xdg_dirs = xdg::BaseDirectories::new();
-            if let Some(path) = xdg_dirs.find_data_file(format!("applications/{desktop_file}")) {
-                let path_str = path.to_string_lossy();
-                let _ = std::process::Command::new("gio")
-                    .args(["launch", path_str.as_ref()])
-                    .spawn();
-            }
+    // Fall back to gio launch with full path (for non-GTK systems like COSMIC)
+    if gtk_result.is_err() {
+        let xdg_dirs = xdg::BaseDirectories::new();
+        if let Some(path) = xdg_dirs.find_data_file(format!("applications/{desktop_file}")) {
+            let path_str = path.to_string_lossy();
+            let _ = std::process::Command::new("gio")
+                .args(["launch", path_str.as_ref()])
+                .spawn();
         }
     }
 }
@@ -1606,7 +1713,6 @@ pub enum Message {
     SetUpcomingEventsCount(i32),
     Navigate(PopupPage),
     OpenCalendar,
-    OpenEvent(String),
     OpenUrl(String),
     CopyToClipboard(String),
     SetPopupJoinButton(usize),
@@ -1629,6 +1735,10 @@ pub enum Message {
     RefreshCompleted,
     SetAutoRefresh(bool),
     SetAutoRefreshInterval(usize),
+    SetShowCalendarButton(bool),
+    SetCalendarAppAction(usize),
+    SetCalendarAppCommand(String),
+    SetCalendarAppUrl(String),
     CalendarChanged,
     /// System resumed from sleep or session was unlocked
     SystemResumed,
@@ -1898,6 +2008,7 @@ impl cosmic::Application for AppModel {
             PopupPage::Settings => self.view_settings_page(),
             PopupPage::Calendars => self.view_calendars_page(),
             PopupPage::RefreshSettings => self.view_refresh_settings_page(),
+            PopupPage::CalendarAppSettings => self.view_calendar_app_settings_page(),
             PopupPage::EventsToShowSettings => self.view_events_to_show_settings_page(),
             PopupPage::EmailSettings => self.view_email_settings_page(),
             PopupPage::PanelDisplaySettings => self.view_panel_display_settings_page(),
@@ -2148,35 +2259,30 @@ impl cosmic::Application for AppModel {
                 self.current_page = page;
             }
             Message::OpenCalendar => {
-                // Query the default calendar application and launch it
-                if let Ok(output) = std::process::Command::new("xdg-mime")
-                    .args(["query", "default", "text/calendar"])
-                    .output()
-                {
-                    let desktop_file = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    if !desktop_file.is_empty() {
-                        // Try gtk-launch first (works on GTK-based systems)
-                        let gtk_result = std::process::Command::new("gtk-launch")
-                            .arg(&desktop_file)
-                            .spawn();
-
-                        // Fall back to gio launch with full path (for non-GTK systems like COSMIC)
-                        if gtk_result.is_err() {
-                            let xdg_dirs = xdg::BaseDirectories::new();
-                            if let Some(path) =
-                                xdg_dirs.find_data_file(format!("applications/{desktop_file}"))
-                            {
-                                let path_str = path.to_string_lossy();
-                                let _ = std::process::Command::new("gio")
-                                    .args(["launch", path_str.as_ref()])
-                                    .spawn();
+                use crate::config::CalendarAppAction;
+                match self.config.calendar_app_action {
+                    CalendarAppAction::SystemDefault => {
+                        open_system_calendar();
+                    }
+                    CalendarAppAction::RunCommand => {
+                        if !self.config.calendar_app_command.is_empty() {
+                            // Parse command and arguments
+                            let parts: Vec<&str> = self
+                                .config
+                                .calendar_app_command
+                                .split_whitespace()
+                                .collect();
+                            if let Some((cmd, args)) = parts.split_first() {
+                                let _ = std::process::Command::new(cmd).args(args).spawn();
                             }
                         }
                     }
+                    CalendarAppAction::OpenUrl => {
+                        if !self.config.calendar_app_url.is_empty() {
+                            open_url(&self.config.calendar_app_url);
+                        }
+                    }
                 }
-            }
-            Message::OpenEvent(uid) => {
-                open_event_in_calendar(&uid);
             }
             Message::OpenUrl(url) => {
                 // Open the meeting URL using freedesktop portal (preferred) or xdg-open fallback
@@ -2366,6 +2472,35 @@ impl cosmic::Application for AppModel {
                     3 => 30,
                     _ => 10, // 1 or any other value
                 };
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetShowCalendarButton(enabled) => {
+                self.config.show_calendar_button = enabled;
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetCalendarAppAction(idx) => {
+                use crate::config::CalendarAppAction;
+                self.config.calendar_app_action = match idx {
+                    1 => CalendarAppAction::RunCommand,
+                    2 => CalendarAppAction::OpenUrl,
+                    _ => CalendarAppAction::SystemDefault, // 0 or any other value
+                };
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetCalendarAppCommand(command) => {
+                self.config.calendar_app_command = command;
+                if let Some(ref ctx) = self.config_context {
+                    let _ = self.config.write_entry(ctx);
+                }
+            }
+            Message::SetCalendarAppUrl(url) => {
+                self.config.calendar_app_url = url;
                 if let Some(ref ctx) = self.config_context {
                     let _ = self.config.write_entry(ctx);
                 }
