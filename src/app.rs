@@ -139,6 +139,15 @@ impl AppModel {
             .collect()
     }
 
+    /// Save config to disk, logging any errors (e.g. Flatpak sandbox write failures).
+    fn save_config(&self) {
+        if let Some(ref ctx) = self.config_context
+            && let Err(e) = self.config.write_entry(ctx)
+        {
+            eprintln!("warning: failed to save config: {e}");
+        }
+    }
+
     /// Get UIDs of enabled calendars that are valid meeting sources.
     /// Filters out non-meeting calendars (contacts, weather, birthdays).
     fn enabled_meeting_source_uids(&self) -> Vec<String> {
@@ -2194,9 +2203,7 @@ impl cosmic::Application for AppModel {
                 }
 
                 // Save config
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
 
                 // Refresh meetings with new filter
                 let enabled_uids = self.enabled_meeting_source_uids();
@@ -2219,18 +2226,14 @@ impl cosmic::Application for AppModel {
                     1 => DisplayFormat::Relative,
                     _ => DisplayFormat::DayAndTime, // 0 or any other value
                 };
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetUpcomingEventsCount(count) => {
                 #[allow(clippy::cast_sign_loss)] // clamp(0, 10) ensures value is non-negative
                 {
                     self.config.upcoming_events_count = count.clamp(0, 10) as u8;
                 }
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
                 // Refresh meetings with new count
                 let enabled_uids = self.config.enabled_calendar_uids.clone();
                 let upcoming_count = self.config.upcoming_events_count as usize;
@@ -2252,9 +2255,8 @@ impl cosmic::Application for AppModel {
                 if matches!(
                     self.current_page,
                     PopupPage::PanelDisplaySettings | PopupPage::PopupDisplaySettings
-                ) && let Some(ref ctx) = self.config_context
-                {
-                    let _ = self.config.write_entry(ctx);
+                ) {
+                    self.save_config();
                 }
                 self.current_page = page;
             }
@@ -2300,9 +2302,7 @@ impl cosmic::Application for AppModel {
                     5 => JoinButtonVisibility::ShowIf5m,
                     _ => JoinButtonVisibility::Show, // 1 or any other value
                 };
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetPanelJoinButton(idx) => {
                 self.config.panel_join_button = match idx {
@@ -2313,61 +2313,43 @@ impl cosmic::Application for AppModel {
                     5 => JoinButtonVisibility::ShowIf5m,
                     _ => JoinButtonVisibility::Show, // 1 or any other value
                 };
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetPopupShowLocation(enabled) => {
                 self.config.popup_show_location = enabled;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetPanelShowLocation(enabled) => {
                 self.config.panel_show_location = enabled;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetPanelCalendarIndicator(enabled) => {
                 self.config.panel_calendar_indicator = enabled;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetPopupCalendarIndicator(enabled) => {
                 self.config.popup_calendar_indicator = enabled;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::UpdatePattern(idx, pattern) => {
                 if idx < self.config.meeting_url_patterns.len() {
                     self.config.meeting_url_patterns[idx] = pattern;
-                    if let Some(ref ctx) = self.config_context {
-                        let _ = self.config.write_entry(ctx);
-                    }
+                    self.save_config();
                 }
             }
             Message::AddPattern => {
                 self.config.meeting_url_patterns.push(String::new());
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::RemovePattern(idx) => {
                 if idx < self.config.meeting_url_patterns.len() {
                     self.config.meeting_url_patterns.remove(idx);
-                    if let Some(ref ctx) = self.config_context {
-                        let _ = self.config.write_entry(ctx);
-                    }
+                    self.save_config();
                 }
             }
             Message::SetShowAllDayEvents(enabled) => {
                 self.config.show_all_day_events = enabled;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetInProgressMeeting(idx) => {
                 self.config.show_in_progress = match idx {
@@ -2377,9 +2359,7 @@ impl cosmic::Application for AppModel {
                     4 => InProgressMeeting::Within30m,
                     _ => InProgressMeeting::Off, // 0 or any other value
                 };
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetEventStatusFilter(idx) => {
                 use crate::config::EventStatusFilter;
@@ -2388,9 +2368,7 @@ impl cosmic::Application for AppModel {
                     2 => EventStatusFilter::AcceptedOrTentative,
                     _ => EventStatusFilter::All, // 0 or any other value
                 };
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetTimeUntilFilter(idx) => {
                 use crate::config::TimeUntilFilter;
@@ -2402,24 +2380,18 @@ impl cosmic::Application for AppModel {
                     5 => TimeUntilFilter::Within2Days,
                     _ => TimeUntilFilter::All, // 0 or any other value
                 };
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::UpdateEmail(idx, email) => {
                 if let Some(e) = self.config.additional_emails.get_mut(idx) {
                     *e = email;
                 }
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::AddEmail => {
                 let new_idx = self.config.additional_emails.len();
                 self.config.additional_emails.push(String::new());
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
                 // Focus the new email input field
                 return cosmic::widget::text_input::focus(email_input_id(new_idx));
             }
@@ -2427,9 +2399,7 @@ impl cosmic::Application for AppModel {
                 if idx < self.config.additional_emails.len() {
                     self.config.additional_emails.remove(idx);
                 }
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::RefreshCalendars => {
                 if !self.is_refreshing {
@@ -2461,9 +2431,7 @@ impl cosmic::Application for AppModel {
             }
             Message::SetAutoRefresh(enabled) => {
                 self.config.auto_refresh_enabled = enabled;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetAutoRefreshInterval(idx) => {
                 self.config.auto_refresh_interval_minutes = match idx {
@@ -2472,15 +2440,11 @@ impl cosmic::Application for AppModel {
                     3 => 30,
                     _ => 10, // 1 or any other value
                 };
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetShowCalendarButton(enabled) => {
                 self.config.show_calendar_button = enabled;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetCalendarAppAction(idx) => {
                 use crate::config::CalendarAppAction;
@@ -2489,21 +2453,15 @@ impl cosmic::Application for AppModel {
                     2 => CalendarAppAction::OpenUrl,
                     _ => CalendarAppAction::SystemDefault, // 0 or any other value
                 };
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetCalendarAppCommand(command) => {
                 self.config.calendar_app_command = command;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::SetCalendarAppUrl(url) => {
                 self.config.calendar_app_url = url;
-                if let Some(ref ctx) = self.config_context {
-                    let _ = self.config.write_entry(ctx);
-                }
+                self.save_config();
             }
             Message::OpenCosmicSettings => {
                 let _ = std::process::Command::new("cosmic-settings")
@@ -2599,9 +2557,7 @@ impl cosmic::Application for AppModel {
                 if self.popup.as_ref() == Some(&id) {
                     self.popup = None;
                     // Save any pending config changes (e.g., from sliders)
-                    if let Some(ref ctx) = self.config_context {
-                        let _ = self.config.write_entry(ctx);
-                    }
+                    self.save_config();
                     // Reset to main page for next open
                     self.current_page = PopupPage::Main;
                 }
