@@ -54,6 +54,12 @@
   </keywords>
 
   <releases>
+    <release version="0.9.3" date="2026-03-10">
+      <description>
+        <p>Fix calendars showing "no meetings" on some systems by properly initializing EDS calendar backends before querying</p>
+        <p>Allow choice of calendar app to open when clicking on a meeting</p>
+      </description>
+    </release>
     <release version="0.9.2" date="2026-01-09">
       <description>
         <p>Fixed bug with timezone handling</p>
