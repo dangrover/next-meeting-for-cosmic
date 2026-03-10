@@ -194,7 +194,7 @@ async fn show_raw_events(
                                 None
                             }
                         });
-                        println!("  [calcard] SUMMARY = {:?}", value);
+                        println!("  [calcard] SUMMARY = {value:?}");
                     }
                     // Show LOCATION
                     if let Some(entry) = comp.property(&ICalendarProperty::Location) {
@@ -205,7 +205,7 @@ async fn show_raw_events(
                                 None
                             }
                         });
-                        println!("  [calcard] LOCATION = {:?}", value);
+                        println!("  [calcard] LOCATION = {value:?}");
                     }
                     // Show DTSTART
                     if let Some(entry) = comp.property(&ICalendarProperty::Dtstart) {

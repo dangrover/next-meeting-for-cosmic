@@ -29,6 +29,7 @@ pub enum AttendanceStatus {
 
 #[derive(Debug, Clone)]
 pub struct Meeting {
+    #[allow(dead_code)]
     pub uid: String,
     pub title: String,
     pub start: DateTime<Local>,
