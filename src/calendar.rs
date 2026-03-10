@@ -510,7 +510,9 @@ async fn get_meetings_from_dbus(
                 .unwrap_or(chrono_tz::Tz::UTC);
 
             // Expand recurring events (handles RRULE, EXDATE, RDATE)
-            let expanded = calendar.expand_dates(local_tz, 100);
+            // Use a large limit since EDS returns master events with RRULEs that
+            // may have started years ago; we need enough instances to reach today.
+            let expanded = calendar.expand_dates(local_tz, 10_000);
 
             for event in expanded.events {
                 // Get the component for this event

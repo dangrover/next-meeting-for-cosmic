@@ -244,6 +244,9 @@ async fn get_calendar_events(
     )
     .await?;
 
+    // Initialize the backend (required before any calendar operations)
+    let _ = calendar.call_method("Open", &()).await;
+
     let reply = calendar.call_method("GetObjectList", &("",)).await?;
     let events: Vec<String> = reply.body()?;
 
