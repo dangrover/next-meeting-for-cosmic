@@ -135,6 +135,9 @@ pub async fn refresh_calendars(enabled_uids: &[String]) {
             continue;
         };
 
+        // Initialize the backend (required before any calendar operations)
+        let _ = calendar_proxy.call_method("Open", &()).await;
+
         // Call Refresh method (fire and forget - don't wait for completion)
         let _ = calendar_proxy.call_method("Refresh", &()).await;
     }
@@ -436,6 +439,9 @@ async fn get_meetings_from_dbus(
             continue;
         };
 
+        // Initialize the backend (required before any calendar operations)
+        let _ = calendar_proxy.call_method("Open", &()).await;
+
         // Get the CalEmailAddress property for this calendar
         // This is used to identify the user in ATTENDEE fields
         let cal_email: Option<String> = calendar_proxy
@@ -735,6 +741,8 @@ async fn get_calendars_from_dbus(conn: &Connection) -> Option<Vec<CalendarInfo>>
                 )
                 .await
             {
+                // Initialize the backend (required before reading properties)
+                let _ = cal_proxy.call_method("Open", &()).await;
                 // Get the Revision property (format: "2026-01-08T04:19:20Z(0)")
                 if let Ok(revision) = cal_proxy.get_property::<String>("Revision").await {
                     // Extract just the timestamp part before the parentheses
