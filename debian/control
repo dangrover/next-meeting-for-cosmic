@@ -1,4 +1,4 @@
-Source: cosmic-next-meeting
+Source: cosmic-ext-applet-next-meeting
 Section: x11
 Priority: optional
 Maintainer: Dan Grover <dan@dangrover.com>
@@ -8,10 +8,10 @@ Build-Depends: debhelper-compat (= 13),
                libssl-dev,
                pkg-config
 Standards-Version: 4.6.2
-Homepage: https://github.com/dangrover/cosmic-next-meeting
+Homepage: https://github.com/dangrover/cosmic-ext-applet-next-meeting
 Rules-Requires-Root: no
 
-Package: cosmic-next-meeting
+Package: cosmic-ext-applet-next-meeting
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends},
          evolution-data-server

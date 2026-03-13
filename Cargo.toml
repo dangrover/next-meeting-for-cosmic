@@ -1,14 +1,14 @@
 [package]
-name = "cosmic-next-meeting"
+name = "cosmic-ext-applet-next-meeting"
 version = "0.9.3"
 edition = "2024"
 authors = ["Dan Grover"]
 license = "GPL-3.0-only"
 description = "Show next meeting in cosmic panel or dock"
-repository = "https://github.com/dangrover/cosmic-next-meeting"
+repository = "https://github.com/dangrover/cosmic-ext-applet-next-meeting"
 
 [[bin]]
-name = "cosmic-next-meeting"
+name = "cosmic-ext-applet-next-meeting"
 path = "src/main.rs"
 
 [[bin]]

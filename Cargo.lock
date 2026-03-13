@@ -1081,21 +1081,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmic-freedesktop-icons"
-version = "0.4.0"
-source = "git+https://github.com/pop-os/freedesktop-icons#7a61a704f6d1ec41f71cbe766e3cc484858523fa"
-dependencies = [
- "bstr",
- "btoi",
- "memchr",
- "memmap2 0.9.9",
- "thiserror 2.0.17",
- "tracing",
- "xdg",
-]
-
-[[package]]
-name = "cosmic-next-meeting"
+name = "cosmic-ext-applet-next-meeting"
 version = "0.9.3"
 dependencies = [
  "calcard",
@@ -1112,6 +1098,20 @@ dependencies = [
  "tokio",
  "xdg",
  "zbus 3.15.2",
+]
+
+[[package]]
+name = "cosmic-freedesktop-icons"
+version = "0.4.0"
+source = "git+https://github.com/pop-os/freedesktop-icons#7a61a704f6d1ec41f71cbe766e3cc484858523fa"
+dependencies = [
+ "bstr",
+ "btoi",
+ "memchr",
+ "memmap2 0.9.9",
+ "thiserror 2.0.17",
+ "tracing",
+ "xdg",
 ]
 
 [[package]]

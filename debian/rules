@@ -3,9 +3,9 @@
 export CARGO_HOME = $(CURDIR)/debian/cargo
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-NAME = cosmic-next-meeting
+NAME = cosmic-ext-applet-next-meeting
 APPID = com.dangrover.next-meeting-app
-DESTDIR = debian/cosmic-next-meeting
+DESTDIR = debian/cosmic-ext-applet-next-meeting
 
 %:
 	dh $@

@@ -32,7 +32,7 @@ jobs:
 
       - name: Create .deb package
         run: |
-          PKG_NAME="cosmic-next-meeting"
+          PKG_NAME="cosmic-ext-applet-next-meeting"
           PKG_VERSION="${{ steps.version.outputs.VERSION }}"
           PKG_DIR="${PKG_NAME}_${PKG_VERSION}_amd64"
 
@@ -44,7 +44,7 @@ jobs:
           mkdir -p "${PKG_DIR}/usr/share/icons/hicolor/symbolic/apps"
 
           # Copy files
-          cp target/release/cosmic-next-meeting "${PKG_DIR}/usr/bin/"
+          cp target/release/cosmic-ext-applet-next-meeting "${PKG_DIR}/usr/bin/"
           cp resources/app.desktop "${PKG_DIR}/usr/share/applications/com.dangrover.next-meeting-app.desktop"
           cp resources/app.metainfo.xml "${PKG_DIR}/usr/share/metainfo/com.dangrover.next-meeting-app.metainfo.xml"
           cp resources/icon.svg "${PKG_DIR}/usr/share/icons/hicolor/scalable/apps/com.dangrover.next-meeting-app.svg"
@@ -52,7 +52,7 @@ jobs:
 
           # Create control file
           cat > "${PKG_DIR}/DEBIAN/control" << EOF
-          Package: cosmic-next-meeting
+          Package: cosmic-ext-applet-next-meeting
           Version: ${PKG_VERSION}
           Section: x11
           Priority: optional
@@ -91,7 +91,7 @@ jobs:
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: cosmic-next-meeting-x86_64.flatpak
+          bundle: cosmic-ext-applet-next-meeting-x86_64.flatpak
           manifest-path: com.dangrover.next-meeting-app.json
           arch: x86_64
           cache-key: flatpak-builder-x86_64-${{ github.sha }}

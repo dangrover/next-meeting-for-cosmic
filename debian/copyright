@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: cosmic-next-meeting
+Upstream-Name: cosmic-ext-applet-next-meeting
 Upstream-Contact: Dan Grover <dan@dangrover.com>
-Source: https://github.com/dangrover/cosmic-next-meeting
+Source: https://github.com/dangrover/cosmic-ext-applet-next-meeting
 
 Files: *
 Copyright: 2025 Dan Grover <dan@dangrover.com>

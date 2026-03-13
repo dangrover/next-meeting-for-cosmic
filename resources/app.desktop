@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Next Meeting
-Exec=cosmic-next-meeting
+Exec=cosmic-ext-applet-next-meeting
 Terminal=false
 Type=Application
 StartupNotify=true

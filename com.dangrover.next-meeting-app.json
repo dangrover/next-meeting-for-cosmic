@@ -6,7 +6,7 @@
     "sdk-extensions": [
         "org.freedesktop.Sdk.Extension.rust-stable"
     ],
-    "command": "cosmic-next-meeting",
+    "command": "cosmic-ext-applet-next-meeting",
     "finish-args": [
         "--share=ipc",
         "--socket=fallback-x11",
@@ -22,18 +22,18 @@
     "build-options": {
         "append-path": "/usr/lib/sdk/rust-stable/bin",
         "env": {
-            "CARGO_HOME": "/run/build/cosmic-next-meeting/cargo",
+            "CARGO_HOME": "/run/build/cosmic-ext-applet-next-meeting/cargo",
             "RUST_BACKTRACE": "1"
         }
     },
     "modules": [
         {
-            "name": "cosmic-next-meeting",
+            "name": "cosmic-ext-applet-next-meeting",
             "buildsystem": "simple",
             "build-commands": [
                 "cargo --offline fetch --manifest-path Cargo.toml --verbose",
                 "cargo --offline build --release --verbose",
-                "install -Dm755 target/release/cosmic-next-meeting /app/bin/cosmic-next-meeting",
+                "install -Dm755 target/release/cosmic-ext-applet-next-meeting /app/bin/cosmic-ext-applet-next-meeting",
                 "install -Dm644 resources/app.desktop /app/share/applications/com.dangrover.next-meeting-app.desktop",
                 "install -Dm644 resources/app.metainfo.xml /app/share/metainfo/com.dangrover.next-meeting-app.metainfo.xml",
                 "install -Dm644 resources/icon.svg /app/share/icons/hicolor/scalable/apps/com.dangrover.next-meeting-app.svg",

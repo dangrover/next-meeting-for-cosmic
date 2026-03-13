@@ -26,24 +26,24 @@ It's similar to [Notion Calendar](https://www.notion.so/product/calendar) and [F
 Add the Flatpak repository to get automatic updates:
 
 ```bash
-flatpak remote-add --user --if-not-exists next-meeting https://dangrover.github.io/next-meeting-for-cosmic/index.flatpakrepo
+flatpak remote-add --user --if-not-exists next-meeting https://dangrover.github.io/cosmic-ext-applet-next-meeting/index.flatpakrepo
 flatpak install --user next-meeting com.dangrover.next-meeting-app
 ```
 
 ### Flatpak Bundle
 
-Alternatively, download the `.flatpak` bundle from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases):
+Alternatively, download the `.flatpak` bundle from the [Releases page](https://github.com/dangrover/cosmic-ext-applet-next-meeting/releases):
 
 ```bash
-flatpak install --user cosmic-next-meeting-x86_64.flatpak
+flatpak install --user cosmic-ext-applet-next-meeting-x86_64.flatpak
 ```
 
 ### Debian/Ubuntu/Pop!_OS
 
-Download the `.deb` file from the [Releases page](https://github.com/dangrover/next-meeting-for-cosmic/releases):
+Download the `.deb` file from the [Releases page](https://github.com/dangrover/cosmic-ext-applet-next-meeting/releases):
 
 ```bash
-sudo apt install ./cosmic-next-meeting_*.deb
+sudo apt install ./cosmic-ext-applet-next-meeting_*.deb
 ```
 
 After installing, you should be able to enable it in Settings > Desktop > Panel > Applets.
@@ -75,7 +75,7 @@ For distribution packaging, vendor dependencies and use the provided install tar
 ```bash
 just vendor
 just build-vendored
-just rootdir=debian/cosmic-next-meeting prefix=/usr install
+just rootdir=debian/cosmic-ext-applet-next-meeting prefix=/usr install
 ```
 
 ### Translating

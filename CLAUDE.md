@@ -51,7 +51,7 @@ just check            # Run clippy linter (pedantic)
 just install          # Install to ~/.local
 ```
 
-**Important:** Always use `just dev` when testing changes. The panel loads the installed binary from `~/.local/bin/meeting`, not from `target/`. Running only `cargo build` will not update what the panel displays.
+**Important:** Always use `just dev` when testing changes. The panel loads the installed binary from `~/.local/bin/cosmic-ext-applet-next-meeting`, not from `target/`. Running only `cargo build` will not update what the panel displays.
 
 ## Architecture
 
@@ -85,7 +85,7 @@ Subscriptions run in background: calendar refresh (60s interval) and config watc
 
 ## Localization
 
-Translations use Fluent format in `i18n/<lang>/meeting.ftl`. Add new languages by copying `i18n/en/` directory. Use `fl!("message-id")` macro in code.
+Translations use Fluent format in `i18n/<lang>/cosmic_ext_applet_next_meeting.ftl`. Add new languages by copying `i18n/en/` directory. Use `fl!("message-id")` macro in code.
 
 ## Key Dependencies
 

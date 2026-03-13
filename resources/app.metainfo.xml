@@ -22,15 +22,15 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/dangrover/next-meeting-for-cosmic/main/resources/screenshots/panel.png</image>
+      <image>https://raw.githubusercontent.com/dangrover/cosmic-ext-applet-next-meeting/main/resources/screenshots/panel.png</image>
       <caption>Next Meeting applet showing an upcoming calendar event in the COSMIC panel</caption>
     </screenshot>
   </screenshots>
 
-  <url type="homepage">https://github.com/dangrover/cosmic-next-meeting</url>
-  <url type="bugtracker">https://github.com/dangrover/cosmic-next-meeting/issues</url>
-  <url type="contribute">https://github.com/dangrover/cosmic-next-meeting</url>
-  <url type="translate">https://github.com/dangrover/cosmic-next-meeting/tree/main/i18n</url>
+  <url type="homepage">https://github.com/dangrover/cosmic-ext-applet-next-meeting</url>
+  <url type="bugtracker">https://github.com/dangrover/cosmic-ext-applet-next-meeting/issues</url>
+  <url type="contribute">https://github.com/dangrover/cosmic-ext-applet-next-meeting</url>
+  <url type="translate">https://github.com/dangrover/cosmic-ext-applet-next-meeting/tree/main/i18n</url>
 
   <content_rating type="oars-1.1" />
 
@@ -38,7 +38,7 @@
 
   <provides>
     <id>com.system76.CosmicApplet</id>
-    <binary>cosmic-next-meeting</binary>
+    <binary>cosmic-ext-applet-next-meeting</binary>
   </provides>
 
   <categories>

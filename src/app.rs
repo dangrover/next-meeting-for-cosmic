@@ -1628,7 +1628,7 @@ impl AppModel {
         let command: &'static str = if std::env::var("FLATPAK_ID").is_ok() {
             "flatpak run com.dangrover.next-meeting-app --join-next"
         } else {
-            "cosmic-next-meeting --join-next"
+            "cosmic-ext-applet-next-meeting --join-next"
         };
         content = content.push(
             widget::container(
@@ -1725,14 +1725,15 @@ impl AppModel {
                     widget::button::text(fl!("website"))
                         .class(cosmic::theme::Button::Link)
                         .on_press(Message::OpenUrl(
-                            "https://github.com/dangrover/next-meeting-for-cosmic".to_string(),
+                            "https://github.com/dangrover/cosmic-ext-applet-next-meeting"
+                                .to_string(),
                         )),
                 )
                 .push(
                     widget::button::text(fl!("report-bug"))
                         .class(cosmic::theme::Button::Link)
                         .on_press(Message::OpenUrl(
-                            "https://github.com/dangrover/next-meeting-for-cosmic/issues"
+                            "https://github.com/dangrover/cosmic-ext-applet-next-meeting/issues"
                                 .to_string(),
                         )),
                 ),
