@@ -28,9 +28,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("raw") => {
             let uid = args
                 .get(2)
-                .ok_or("Usage: debug_calendars raw <calendar_uid> [limit]")?;
+                .ok_or("Usage: debug_calendars raw <calendar_uid> [limit] [lines]")?;
             let limit = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(5);
-            show_raw_events(&conn, uid, limit).await?;
+            let max_lines = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(20);
+            show_raw_events(&conn, uid, limit, max_lines).await?;
+        }
+        Some("refresh") => {
+            let uid = args
+                .get(2)
+                .ok_or("Usage: debug_calendars refresh <calendar_uid>")?;
+            refresh_calendar(&conn, uid).await?;
         }
         _ => {
             println!("Calendar Debug Utility");
@@ -43,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "  cargo run --bin debug_calendars events <uid> [n]  - Show n parsed events from calendar"
             );
             println!(
-                "  cargo run --bin debug_calendars raw <uid> [n]     - Show n raw ICS objects from calendar"
+                "  cargo run --bin debug_calendars raw <uid> [n] [lines] - Show n raw ICS objects (lines per event, 0=all)"
             );
         }
     }
@@ -154,6 +161,7 @@ async fn show_raw_events(
     conn: &Connection,
     uid: &str,
     limit: usize,
+    max_lines: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let events = get_calendar_events(conn, uid).await?;
 
@@ -165,14 +173,14 @@ async fn show_raw_events(
 
     for (i, ics) in events.iter().take(limit).enumerate() {
         println!("=== Event {} ===", i + 1);
-        // Show full raw ICS (first 20 lines)
+        // Show raw ICS (0 = unlimited)
         for (j, line) in ics.lines().enumerate() {
-            if j < 20 {
+            if max_lines == 0 || j < max_lines {
                 println!("  {line}");
             }
         }
-        if ics.lines().count() > 20 {
-            println!("  ... ({} more lines)", ics.lines().count() - 20);
+        if max_lines > 0 && ics.lines().count() > max_lines {
+            println!("  ... ({} more lines)", ics.lines().count() - max_lines);
         }
 
         // Also show what calcard parses (wrap in VCALENDAR if needed)
@@ -306,6 +314,51 @@ fn parse_ical_datetime(line: &str) -> Option<chrono::DateTime<chrono::Local>> {
     }
 
     None
+}
+
+async fn refresh_calendar(conn: &Connection, uid: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let factory = zbus::Proxy::new(
+        conn,
+        "org.gnome.evolution.dataserver.Calendar8",
+        "/org/gnome/evolution/dataserver/CalendarFactory",
+        "org.gnome.evolution.dataserver.CalendarFactory",
+    )
+    .await?;
+
+    let reply = factory.call_method("OpenCalendar", &(uid,)).await?;
+    let (calendar_path, bus_name): (String, String) = reply.body()?;
+    println!("Opened: path={calendar_path} bus={bus_name}");
+
+    let calendar = zbus::Proxy::new(
+        conn,
+        bus_name.as_str(),
+        calendar_path.as_str(),
+        "org.gnome.evolution.dataserver.Calendar",
+    )
+    .await?;
+
+    match calendar.call_method("Open", &()).await {
+        Ok(_) => println!("Open: OK"),
+        Err(e) => println!("Open: {e}"),
+    }
+
+    match calendar.call_method("Refresh", &()).await {
+        Ok(_) => println!("Refresh: OK"),
+        Err(e) => println!("Refresh: {e}"),
+    }
+
+    println!("Waiting 5 seconds for sync...");
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    match calendar.call_method("GetObjectList", &("",)).await {
+        Ok(reply) => {
+            let events: Vec<String> = reply.body()?;
+            println!("Events after refresh: {}", events.len());
+        }
+        Err(e) => println!("GetObjectList error: {e}"),
+    }
+
+    Ok(())
 }
 
 fn parse_field(data: &str, field: &str) -> Option<String> {
