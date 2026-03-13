@@ -65,6 +65,90 @@ impl CalendarInfo {
     }
 }
 
+/// An online account that needs the user's attention (e.g. re-authentication).
+#[derive(Debug, Clone)]
+pub struct AccountNeedingAttention {
+    /// Display-friendly identity (e.g. "dangrover@fastmail.com")
+    pub identity: String,
+}
+
+/// Check GNOME Online Accounts for any calendar-enabled accounts that need
+/// attention (expired credentials, etc.).
+pub async fn check_accounts_needing_attention() -> Vec<AccountNeedingAttention> {
+    use std::collections::HashMap;
+    use zvariant::{OwnedObjectPath, OwnedValue, Value};
+
+    let Ok(conn) = Connection::session().await else {
+        return Vec::new();
+    };
+
+    let Ok(proxy) = zbus::Proxy::new(
+        &conn,
+        "org.gnome.OnlineAccounts",
+        "/org/gnome/OnlineAccounts",
+        "org.freedesktop.DBus.ObjectManager",
+    )
+    .await
+    else {
+        return Vec::new();
+    };
+
+    let Ok(reply) = proxy.call_method("GetManagedObjects", &()).await else {
+        return Vec::new();
+    };
+    let Ok(objects) =
+        reply.body::<HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>>()
+    else {
+        return Vec::new();
+    };
+
+    let mut results = Vec::new();
+
+    for (_path, interfaces) in objects {
+        let Some(account) = interfaces.get("org.gnome.OnlineAccounts.Account") else {
+            continue;
+        };
+
+        // Only care about accounts that have calendar support
+        if !interfaces.contains_key("org.gnome.OnlineAccounts.Calendar") {
+            continue;
+        }
+
+        // Check if CalendarDisabled
+        let calendar_disabled = account.get("CalendarDisabled").is_some_and(|v| {
+            v.downcast_ref::<Value>()
+                .is_some_and(|val| matches!(val, Value::Bool(true)))
+        });
+        if calendar_disabled {
+            continue;
+        }
+
+        // Check AttentionNeeded
+        let attention_needed = account.get("AttentionNeeded").is_some_and(|v| {
+            v.downcast_ref::<Value>()
+                .is_some_and(|val| matches!(val, Value::Bool(true)))
+        });
+        if !attention_needed {
+            continue;
+        }
+
+        let identity = account
+            .get("PresentationIdentity")
+            .and_then(|v| {
+                if let Some(Value::Str(s)) = v.downcast_ref::<Value>() {
+                    Some(s.to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        results.push(AccountNeedingAttention { identity });
+    }
+
+    results
+}
+
 /// Fetch available calendars from Evolution Data Server via D-Bus
 pub async fn get_available_calendars() -> Vec<CalendarInfo> {
     // Debug: simulate no calendars for testing
@@ -77,6 +161,83 @@ pub async fn get_available_calendars() -> Vec<CalendarInfo> {
     };
 
     get_calendars_from_dbus(&conn).await.unwrap_or_default()
+}
+
+/// Ask EDS to re-discover calendars from all collection/account backends.
+///
+/// Calls `RefreshBackend` on the `SourceManager` for every source that has a
+/// `[Collection]` section (e.g. `CalDAV` or GOA accounts). This triggers
+/// server-side discovery of new calendars that were added to the account.
+pub async fn refresh_source_backends() {
+    use std::collections::HashMap;
+    use zvariant::{OwnedObjectPath, OwnedValue, Value};
+
+    let Ok(conn) = Connection::session().await else {
+        return;
+    };
+
+    let Ok(proxy) = zbus::Proxy::new(
+        &conn,
+        "org.gnome.evolution.dataserver.Sources5",
+        "/org/gnome/evolution/dataserver/SourceManager",
+        "org.gnome.evolution.dataserver.SourceManager",
+    )
+    .await
+    else {
+        return;
+    };
+
+    // Also get managed objects to find collection UIDs
+    let Ok(om_proxy) = zbus::Proxy::new(
+        &conn,
+        "org.gnome.evolution.dataserver.Sources5",
+        "/org/gnome/evolution/dataserver/SourceManager",
+        "org.freedesktop.DBus.ObjectManager",
+    )
+    .await
+    else {
+        return;
+    };
+
+    let Ok(reply) = om_proxy.call_method("GetManagedObjects", &()).await else {
+        return;
+    };
+    let Ok(objects) =
+        reply.body::<HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>>()
+    else {
+        return;
+    };
+
+    for (_path, interfaces) in objects {
+        let Some(source_props) = interfaces.get("org.gnome.evolution.dataserver.Source") else {
+            continue;
+        };
+
+        // Check for [Collection] section in the Data property
+        let is_collection = source_props.get("Data").is_some_and(|v| {
+            if let Some(Value::Str(s)) = v.downcast_ref::<Value>() {
+                s.contains("[Collection]")
+            } else {
+                false
+            }
+        });
+
+        if !is_collection {
+            continue;
+        }
+
+        let Some(uid) = source_props.get("UID").and_then(|v| {
+            if let Some(Value::Str(s)) = v.downcast_ref::<Value>() {
+                Some(s.to_string())
+            } else {
+                None
+            }
+        }) else {
+            continue;
+        };
+
+        let _ = proxy.call_method("RefreshBackend", &(uid.as_str(),)).await;
+    }
 }
 
 /// Refresh all calendars by triggering an upstream sync with remote servers.
@@ -241,6 +402,53 @@ async fn watch_single_calendar(
     // Listen for signals and notify the channel
     while stream.next().await.is_some() {
         let _ = sender.try_send(());
+    }
+}
+
+/// Watch for new or removed calendar sources via the `ObjectManager`'s
+/// `InterfacesAdded` / `InterfacesRemoved` signals on the EDS `SourceManager`.
+///
+/// Sends to the channel whenever the set of sources changes, so the app can
+/// immediately refresh its calendar list and meetings.
+pub async fn watch_source_changes(sender: tokio::sync::mpsc::Sender<()>) {
+    let Ok(conn) = Connection::session().await else {
+        return;
+    };
+
+    let Ok(proxy) = zbus::Proxy::new(
+        &conn,
+        "org.gnome.evolution.dataserver.Sources5",
+        "/org/gnome/evolution/dataserver/SourceManager",
+        "org.freedesktop.DBus.ObjectManager",
+    )
+    .await
+    else {
+        return;
+    };
+
+    // Listen for InterfacesAdded (new source) and InterfacesRemoved (deleted source)
+    let added = proxy.receive_signal("InterfacesAdded").await;
+    let removed = proxy.receive_signal("InterfacesRemoved").await;
+
+    // Merge whichever streams we were able to subscribe to
+    match (added, removed) {
+        (Ok(a), Ok(r)) => {
+            let mut merged = futures_util::stream::select(a, r);
+            while merged.next().await.is_some() {
+                let _ = sender.try_send(());
+            }
+        }
+        (Ok(mut a), Err(_)) => {
+            while a.next().await.is_some() {
+                let _ = sender.try_send(());
+            }
+        }
+        (Err(_), Ok(mut r)) => {
+            while r.next().await.is_some() {
+                let _ = sender.try_send(());
+            }
+        }
+        (Err(_), Err(_)) => {}
     }
 }
 
@@ -413,7 +621,7 @@ async fn get_meetings_from_dbus(
         return Vec::new();
     };
 
-    let mut all_meetings: Vec<Meeting> = Vec::new();
+    let mut all_meetings: Vec<(bool, Meeting)> = Vec::new();
 
     for source_uid in source_uids {
         // Open the calendar for this source
@@ -491,113 +699,163 @@ async fn get_meetings_from_dbus(
         };
 
         // Step 4: Parse iCalendar objects and extract meetings using calcard
-        for ics_object in ics_objects {
-            // EDS returns raw VEVENT objects without VCALENDAR wrapper
-            let wrapped = if ics_object.trim().starts_with("BEGIN:VEVENT") {
-                format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\n{ics_object}\r\nEND:VCALENDAR")
-            } else {
-                ics_object.clone()
-            };
+        parse_ics_objects(
+            &ics_objects,
+            &source_uid,
+            now,
+            query_start,
+            &user_emails,
+            &mut all_meetings,
+        );
+    }
 
-            // Parse with calcard (handles line unfolding and text unescaping)
-            let Ok(calendar) = ICalendar::parse(&wrapped) else {
+    // Deduplicate and sort
+    dedup_and_sort_meetings(all_meetings, limit)
+}
+
+/// Parse ICS objects into meetings, collecting into the provided vector.
+///
+/// Each ICS object is parsed with calcard, recurring events are expanded,
+/// and results are tagged with whether they're RECURRENCE-ID overrides.
+fn parse_ics_objects(
+    ics_objects: &[String],
+    source_uid: &str,
+    now: DateTime<Local>,
+    query_start: DateTime<Local>,
+    user_emails: &[String],
+    all_meetings: &mut Vec<(bool, Meeting)>,
+) {
+    for ics_object in ics_objects {
+        // EDS returns raw VEVENT objects without VCALENDAR wrapper
+        let wrapped = if ics_object.trim().starts_with("BEGIN:VEVENT") {
+            format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\n{ics_object}\r\nEND:VCALENDAR")
+        } else {
+            ics_object.clone()
+        };
+
+        // Parse with calcard (handles line unfolding and text unescaping)
+        let Ok(calendar) = ICalendar::parse(&wrapped) else {
+            continue;
+        };
+
+        // Get the local timezone for expansion
+        let local_tz = localzone::get_local_zone()
+            .and_then(|name| chrono_tz::Tz::from_str_insensitive(&name).ok())
+            .unwrap_or(chrono_tz::Tz::UTC);
+
+        // Expand recurring events (handles RRULE, EXDATE, RDATE)
+        // Use a large limit since EDS returns master events with RRULEs that
+        // may have started years ago; we need enough instances to reach today.
+        let expanded = calendar.expand_dates(local_tz, 10_000);
+
+        for event in expanded.events {
+            // Get the component for this event
+            let Some(comp) = calendar.components.get(event.comp_id as usize) else {
                 continue;
             };
 
-            // Get the local timezone for expansion
-            let local_tz = localzone::get_local_zone()
-                .and_then(|name| chrono_tz::Tz::from_str_insensitive(&name).ok())
-                .unwrap_or(chrono_tz::Tz::UTC);
+            // Skip non-events
+            if !matches!(comp.component_type, ICalendarComponentType::VEvent) {
+                continue;
+            }
 
-            // Expand recurring events (handles RRULE, EXDATE, RDATE)
-            // Use a large limit since EDS returns master events with RRULEs that
-            // may have started years ago; we need enough instances to reach today.
-            let expanded = calendar.expand_dates(local_tz, 10_000);
+            // Convert start time to local
+            let start: DateTime<Local> = event.start.with_timezone(&Local);
 
-            for event in expanded.events {
-                // Get the component for this event
-                let Some(comp) = calendar.components.get(event.comp_id as usize) else {
-                    continue;
-                };
+            // Convert end time to local (handle both Time and Delta variants)
+            let end: DateTime<Local> = match event.end {
+                TimeOrDelta::Time(t) => t.with_timezone(&Local),
+                TimeOrDelta::Delta(d) => start + d,
+            };
 
-                // Skip non-events
-                if !matches!(comp.component_type, ICalendarComponentType::VEvent) {
-                    continue;
-                }
+            // Filter by time range
+            if !should_include_meeting(start, end, now, query_start) {
+                continue;
+            }
 
-                // Convert start time to local
-                let start: DateTime<Local> = event.start.with_timezone(&Local);
+            // Extract properties from the component
+            let uid = extract_text_property(comp, &ICalendarProperty::Uid).unwrap_or_default();
+            let title = extract_text_property(comp, &ICalendarProperty::Summary)
+                .unwrap_or_else(|| "Untitled Event".to_string());
+            let location = extract_text_property(comp, &ICalendarProperty::Location);
+            let description = extract_text_property(comp, &ICalendarProperty::Description);
 
-                // Convert end time to local (handle both Time and Delta variants)
-                let end: DateTime<Local> = match event.end {
-                    TimeOrDelta::Time(t) => t.with_timezone(&Local),
-                    TimeOrDelta::Delta(d) => start + d,
-                };
-
-                // Filter by time range
-                if !should_include_meeting(start, end, now, query_start) {
-                    continue;
-                }
-
-                // Extract properties from the component
-                let uid = extract_text_property(comp, &ICalendarProperty::Uid).unwrap_or_default();
-                let title = extract_text_property(comp, &ICalendarProperty::Summary)
-                    .unwrap_or_else(|| "Untitled Event".to_string());
-                let location = extract_text_property(comp, &ICalendarProperty::Location);
-                let description = extract_text_property(comp, &ICalendarProperty::Description);
-
-                // Check if this is an all-day event (DTSTART has VALUE=DATE or no time part)
-                let is_all_day = comp
-                    .property(&ICalendarProperty::Dtstart)
-                    .is_some_and(|prop| {
-                        // Check VALUE=DATE parameter
-                        let has_date_param = prop.params.iter().any(|p| {
-                            matches!(p.name, ICalendarParameterName::Value)
-                                && matches!(
-                                    p.value,
-                                    ICalendarParameterValue::Value(ICalendarValueType::Date)
-                                )
-                        });
-                        // Check if value has no time component
-                        let no_time = prop.values.iter().any(|v| {
-                        matches!(v, ICalendarValue::PartialDateTime(pdt) if pdt.hour.is_none())
+            // Check if this is an all-day event (DTSTART has VALUE=DATE or no time part)
+            let is_all_day = comp
+                .property(&ICalendarProperty::Dtstart)
+                .is_some_and(|prop| {
+                    // Check VALUE=DATE parameter
+                    let has_date_param = prop.params.iter().any(|p| {
+                        matches!(p.name, ICalendarParameterName::Value)
+                            && matches!(
+                                p.value,
+                                ICalendarParameterValue::Value(ICalendarValueType::Date)
+                            )
                     });
-                        has_date_param || no_time
-                    });
+                    // Check if value has no time component
+                    let no_time = prop.values.iter().any(
+                        |v| matches!(v, ICalendarValue::PartialDateTime(pdt) if pdt.hour.is_none()),
+                    );
+                    has_date_param || no_time
+                });
 
-                // Parse attendance status from ATTENDEE entries
-                let attendance_status =
-                    parse_attendance_status_calcard(&comp.entries, &user_emails);
+            // Parse attendance status from ATTENDEE entries
+            let attendance_status = parse_attendance_status_calcard(&comp.entries, user_emails);
 
-                // Generate unique ID for recurring instances
-                let meeting_uid = if comp
-                    .entries
-                    .iter()
-                    .any(|e| matches!(e.name, ICalendarProperty::Rrule))
-                {
-                    format!("{}@{}", uid, start.format("%Y%m%dT%H%M%S"))
-                } else {
-                    uid
-                };
+            // Generate unique ID using uid@timestamp so that recurring
+            // master expansions and RECURRENCE-ID overrides for the same
+            // date/time produce the same key (enabling dedup below).
+            let meeting_uid = format!("{}@{}", uid, start.format("%Y%m%dT%H%M%S"));
 
-                all_meetings.push(Meeting {
+            // Track whether this is a RECURRENCE-ID override (more specific
+            // than an expanded master instance, so preferred during dedup)
+            let is_override = comp
+                .entries
+                .iter()
+                .any(|e| matches!(e.name, ICalendarProperty::RecurrenceId));
+
+            all_meetings.push((
+                is_override,
+                Meeting {
                     uid: meeting_uid,
                     title,
                     start,
                     end,
                     location,
                     description,
-                    calendar_uid: source_uid.clone(),
+                    calendar_uid: source_uid.to_string(),
                     is_all_day,
                     attendance_status,
-                });
+                },
+            ));
+        }
+    }
+}
+
+/// Deduplicate meetings and sort by start time.
+///
+/// When a recurring master expansion and a RECURRENCE-ID override produce
+/// the same `uid@timestamp` key, the override is preferred (it may have
+/// updated details like a changed title, time, or location).
+fn dedup_and_sort_meetings(all_meetings: Vec<(bool, Meeting)>, limit: usize) -> Vec<Meeting> {
+    let mut deduped: std::collections::HashMap<String, Meeting> = std::collections::HashMap::new();
+    for (is_override, meeting) in all_meetings {
+        match deduped.entry(meeting.uid.clone()) {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(meeting);
+            }
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                // RECURRENCE-ID overrides take priority over expanded master instances
+                if is_override {
+                    e.insert(meeting);
+                }
             }
         }
     }
 
-    // Sort and return up to `limit` meetings
-    all_meetings.sort_by_key(|m| m.start);
-    all_meetings.into_iter().take(limit).collect()
+    let mut meetings: Vec<Meeting> = deduped.into_values().collect();
+    meetings.sort_by_key(|m| m.start);
+    meetings.into_iter().take(limit).collect()
 }
 
 /// Get calendar source UIDs from Evolution Data Server via D-Bus
@@ -1200,7 +1458,7 @@ mod tests {
     fn test_parse_ical_datetime_timezone_conversion() {
         // Test that timezone conversion actually changes the time
         // 12:00 UTC should be different from 12:00 local (unless you're in UTC)
-        let utc_result = parse_ical_datetime("20240601T120000Z", None).unwrap();
+        let utc_result = parse_ical_datetime("20240601T120000", None).unwrap();
         let local_result = parse_ical_datetime("20240601T120000", None).unwrap();
 
         // UTC time should be converted to local, so if we're not in UTC,
@@ -1802,7 +2060,7 @@ mod tests {
     #[test]
     fn test_parse_ical_datetime_with_timezones() {
         // Basic UTC time (Z suffix)
-        let utc_result = parse_ical_datetime("20240315T140000Z", None);
+        let utc_result = parse_ical_datetime("20240315T140000", None);
         assert!(utc_result.is_some());
         let utc_dt = utc_result.unwrap();
         // The parsed time should represent 14:00 UTC, converted to local
@@ -1867,7 +2125,7 @@ mod tests {
         assert!(winter_result.is_some()); // January 15 is well within PST
 
         // UTC times are never affected by DST
-        let utc_march = parse_ical_datetime("20240310T100000Z", None);
+        let utc_march = parse_ical_datetime("20240310T100000", None);
         assert!(utc_march.is_some());
 
         // Timezones without DST should never have gaps
@@ -1877,5 +2135,510 @@ mod tests {
         // Suppress unused variable warnings for gap/overlap tests
         let _ = gap_result;
         let _ = overlap_result;
+    }
+
+    // =========================================================================
+    // Tests for parse_ics_objects and dedup_and_sort_meetings
+    // =========================================================================
+
+    /// Helper: parse ICS objects and return deduplicated meetings with a wide time window.
+    fn parse_and_dedup(ics_objects: &[&str]) -> Vec<Meeting> {
+        let now = Local::now();
+        // Wide window: from 1 year ago to catch all test events
+        let query_start = now - chrono::Duration::days(365);
+        let user_emails: Vec<String> = vec![];
+        let mut all_meetings = Vec::new();
+        let ics_strings: Vec<String> = ics_objects.iter().map(|s| (*s).to_string()).collect();
+        parse_ics_objects(
+            &ics_strings,
+            "test-calendar",
+            now,
+            query_start,
+            &user_emails,
+            &mut all_meetings,
+        );
+        dedup_and_sort_meetings(all_meetings, 1000)
+    }
+
+    // Test helpers use TZID=UTC to ensure consistent behavior across systems.
+    // Real EDS data uses DTSTART;TZID=<timezone>:<time> format.
+    // Using UTC avoids timezone conversion differences between calcard's
+    // expand_dates (RRULE expansion) and standalone event parsing.
+
+    /// Helper: build a simple VCALENDAR-wrapped VEVENT with given properties.
+    /// `dtstart`/`dtend` should be in "YYYYMMDDTHHMMSS" format (no Z suffix).
+    fn make_ics(uid: &str, summary: &str, dtstart: &str, dtend: &str) -> String {
+        format!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:{uid}\r\n\
+             SUMMARY:{summary}\r\n\
+             DTSTART;TZID=UTC:{dtstart}\r\n\
+             DTEND;TZID=UTC:{dtend}\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR"
+        )
+    }
+
+    /// Helper: build a recurring VEVENT (master) with RRULE.
+    fn make_recurring_ics(
+        uid: &str,
+        summary: &str,
+        dtstart: &str,
+        dtend: &str,
+        rrule: &str,
+    ) -> String {
+        format!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:{uid}\r\n\
+             SUMMARY:{summary}\r\n\
+             DTSTART;TZID=UTC:{dtstart}\r\n\
+             DTEND;TZID=UTC:{dtend}\r\n\
+             RRULE:{rrule}\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR"
+        )
+    }
+
+    /// Helper: build a RECURRENCE-ID override VEVENT.
+    fn make_override_ics(
+        uid: &str,
+        summary: &str,
+        dtstart: &str,
+        dtend: &str,
+        recurrence_id: &str,
+    ) -> String {
+        format!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:{uid}\r\n\
+             SUMMARY:{summary}\r\n\
+             DTSTART;TZID=UTC:{dtstart}\r\n\
+             DTEND;TZID=UTC:{dtend}\r\n\
+             RECURRENCE-ID;TZID=UTC:{recurrence_id}\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR"
+        )
+    }
+
+    #[test]
+    fn test_single_non_recurring_event() {
+        // A far-future event that will always be in range
+        let ics = make_ics("evt1", "Team Standup", "20270601T100000", "20270601T103000");
+        let meetings = parse_and_dedup(&[&ics]);
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].title, "Team Standup");
+        assert!(meetings[0].uid.starts_with("evt1@"));
+    }
+
+    #[test]
+    fn test_two_different_events_no_dedup() {
+        let ics1 = make_ics("evt1", "Meeting A", "20270601T100000", "20270601T110000");
+        let ics2 = make_ics("evt2", "Meeting B", "20270601T140000", "20270601T150000");
+        let meetings = parse_and_dedup(&[&ics1, &ics2]);
+        assert_eq!(meetings.len(), 2);
+        let titles: Vec<&str> = meetings.iter().map(|m| m.title.as_str()).collect();
+        assert!(titles.contains(&"Meeting A"));
+        assert!(titles.contains(&"Meeting B"));
+    }
+
+    #[test]
+    fn test_recurring_event_expands_multiple_instances() {
+        // Weekly event starting far in the future, 3 occurrences
+        let ics = make_recurring_ics(
+            "weekly1",
+            "Weekly Sync",
+            "20270601T100000",
+            "20270601T110000",
+            "FREQ=WEEKLY;COUNT=3",
+        );
+        let meetings = parse_and_dedup(&[&ics]);
+        assert_eq!(meetings.len(), 3);
+        // All should have same UID prefix but different timestamps
+        for m in &meetings {
+            assert!(m.uid.starts_with("weekly1@"));
+            assert_eq!(m.title, "Weekly Sync");
+        }
+        // Verify they're on different weeks
+        assert_ne!(
+            meetings[0].start.date_naive(),
+            meetings[1].start.date_naive()
+        );
+        assert_ne!(
+            meetings[1].start.date_naive(),
+            meetings[2].start.date_naive()
+        );
+    }
+
+    #[test]
+    fn test_recurrence_id_override_deduplicates_master_expansion() {
+        // This is the key test for the duplicate bug fix.
+        // EDS returns both a master event (with RRULE) and a separate
+        // RECURRENCE-ID override for the same date. Only one should appear.
+
+        // Master: weekly event, 2 instances
+        let master = make_recurring_ics(
+            "allhands",
+            "All Hands",
+            "20270601T120000",
+            "20270601T130000",
+            "FREQ=WEEKLY;COUNT=2",
+        );
+
+        // Override for first instance (same UID, same start time)
+        let override_ics = make_override_ics(
+            "allhands",
+            "All Hands (Updated)",
+            "20270601T120000",
+            "20270601T130000",
+            "20270601T120000",
+        );
+
+        let meetings = parse_and_dedup(&[&master, &override_ics]);
+
+        // Should be 2 instances total (week 1 + week 2), not 3
+        assert_eq!(meetings.len(), 2);
+
+        // The first instance should use the override's title
+        let first = meetings
+            .iter()
+            .find(|m| m.start.format("%Y%m%d").to_string() == "20270601");
+        assert!(first.is_some());
+        assert_eq!(first.unwrap().title, "All Hands (Updated)");
+    }
+
+    #[test]
+    fn test_recurrence_id_override_preferred_regardless_of_order() {
+        // Override comes BEFORE master in the list — should still prefer override
+        let override_ics = make_override_ics(
+            "meeting1",
+            "Override Title",
+            "20270601T120000",
+            "20270601T130000",
+            "20270601T120000",
+        );
+
+        let master = make_recurring_ics(
+            "meeting1",
+            "Original Title",
+            "20270601T120000",
+            "20270601T130000",
+            "FREQ=WEEKLY;COUNT=1",
+        );
+
+        let meetings = parse_and_dedup(&[&override_ics, &master]);
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].title, "Override Title");
+    }
+
+    #[test]
+    fn test_multiple_overrides_for_different_dates() {
+        // Master with 3 weekly instances, overrides for dates 1 and 3
+        let master = make_recurring_ics(
+            "series1",
+            "Weekly",
+            "20270601T100000",
+            "20270601T110000",
+            "FREQ=WEEKLY;COUNT=3",
+        );
+
+        let override1 = make_override_ics(
+            "series1",
+            "Week 1 Updated",
+            "20270601T100000",
+            "20270601T110000",
+            "20270601T100000",
+        );
+
+        let override3 = make_override_ics(
+            "series1",
+            "Week 3 Updated",
+            "20270615T100000",
+            "20270615T110000",
+            "20270615T100000",
+        );
+
+        let meetings = parse_and_dedup(&[&master, &override1, &override3]);
+        assert_eq!(meetings.len(), 3);
+
+        // Check override titles are used for dates 1 and 3
+        let titles: Vec<&str> = meetings.iter().map(|m| m.title.as_str()).collect();
+        assert!(titles.contains(&"Week 1 Updated"));
+        assert!(titles.contains(&"Week 3 Updated"));
+        assert!(titles.contains(&"Weekly")); // Week 2 keeps original
+    }
+
+    #[test]
+    fn test_dedup_same_uid_same_time_non_recurring() {
+        // Two non-recurring events with same UID and same time (shouldn't happen
+        // in practice but tests the dedup path)
+        let ics1 = make_ics("dup1", "Version A", "20270601T100000", "20270601T110000");
+        let ics2 = make_ics("dup1", "Version B", "20270601T100000", "20270601T110000");
+        let meetings = parse_and_dedup(&[&ics1, &ics2]);
+        // Both have same uid@timestamp key; first one wins (neither is an override)
+        assert_eq!(meetings.len(), 1);
+    }
+
+    #[test]
+    fn test_dedup_preserves_different_uids_same_time() {
+        // Two different events at the same time — both should appear
+        let ics1 = make_ics("evt-a", "Meeting A", "20270601T100000", "20270601T110000");
+        let ics2 = make_ics("evt-b", "Meeting B", "20270601T100000", "20270601T110000");
+        let meetings = parse_and_dedup(&[&ics1, &ics2]);
+        assert_eq!(meetings.len(), 2);
+    }
+
+    #[test]
+    fn test_meetings_sorted_by_start_time() {
+        let ics1 = make_ics("evt1", "Third", "20270603T100000", "20270603T110000");
+        let ics2 = make_ics("evt2", "First", "20270601T100000", "20270601T110000");
+        let ics3 = make_ics("evt3", "Second", "20270602T100000", "20270602T110000");
+        let meetings = parse_and_dedup(&[&ics1, &ics2, &ics3]);
+        assert_eq!(meetings.len(), 3);
+        assert_eq!(meetings[0].title, "First");
+        assert_eq!(meetings[1].title, "Second");
+        assert_eq!(meetings[2].title, "Third");
+    }
+
+    #[test]
+    fn test_dedup_and_sort_limit() {
+        let m1 = (
+            false,
+            Meeting {
+                uid: "a@1".to_string(),
+                title: "First".to_string(),
+                start: Local::now() + chrono::Duration::hours(1),
+                end: Local::now() + chrono::Duration::hours(2),
+                location: None,
+                description: None,
+                calendar_uid: "cal".to_string(),
+                is_all_day: false,
+                attendance_status: AttendanceStatus::None,
+            },
+        );
+        let m2 = (
+            false,
+            Meeting {
+                uid: "b@2".to_string(),
+                title: "Second".to_string(),
+                start: Local::now() + chrono::Duration::hours(3),
+                end: Local::now() + chrono::Duration::hours(4),
+                location: None,
+                description: None,
+                calendar_uid: "cal".to_string(),
+                is_all_day: false,
+                attendance_status: AttendanceStatus::None,
+            },
+        );
+        let m3 = (
+            false,
+            Meeting {
+                uid: "c@3".to_string(),
+                title: "Third".to_string(),
+                start: Local::now() + chrono::Duration::hours(5),
+                end: Local::now() + chrono::Duration::hours(6),
+                location: None,
+                description: None,
+                calendar_uid: "cal".to_string(),
+                is_all_day: false,
+                attendance_status: AttendanceStatus::None,
+            },
+        );
+
+        let result = dedup_and_sort_meetings(vec![m1, m2, m3], 2);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].title, "First");
+        assert_eq!(result[1].title, "Second");
+    }
+
+    #[test]
+    fn test_dedup_override_wins_over_non_override() {
+        let now = Local::now();
+        let start = now + chrono::Duration::hours(1);
+        let end = start + chrono::Duration::hours(1);
+
+        let master = (
+            false,
+            Meeting {
+                uid: "key@123".to_string(),
+                title: "Original".to_string(),
+                start,
+                end,
+                location: None,
+                description: None,
+                calendar_uid: "cal".to_string(),
+                is_all_day: false,
+                attendance_status: AttendanceStatus::None,
+            },
+        );
+        let override_m = (
+            true,
+            Meeting {
+                uid: "key@123".to_string(),
+                title: "Override".to_string(),
+                start,
+                end,
+                location: Some("New Room".to_string()),
+                description: None,
+                calendar_uid: "cal".to_string(),
+                is_all_day: false,
+                attendance_status: AttendanceStatus::None,
+            },
+        );
+
+        // Override after master
+        let result = dedup_and_sort_meetings(vec![master.clone(), override_m.clone()], 100);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].title, "Override");
+        assert_eq!(result[0].location, Some("New Room".to_string()));
+
+        // Override before master — should still win
+        let result2 = dedup_and_sort_meetings(vec![override_m, master], 100);
+        assert_eq!(result2.len(), 1);
+        assert_eq!(result2[0].title, "Override");
+    }
+
+    #[test]
+    fn test_dedup_non_override_does_not_replace_override() {
+        let now = Local::now();
+        let start = now + chrono::Duration::hours(1);
+        let end = start + chrono::Duration::hours(1);
+
+        let override_m = (
+            true,
+            Meeting {
+                uid: "key@123".to_string(),
+                title: "Override".to_string(),
+                start,
+                end,
+                location: None,
+                description: None,
+                calendar_uid: "cal".to_string(),
+                is_all_day: false,
+                attendance_status: AttendanceStatus::None,
+            },
+        );
+        let non_override = (
+            false,
+            Meeting {
+                uid: "key@123".to_string(),
+                title: "Non-Override".to_string(),
+                start,
+                end,
+                location: None,
+                description: None,
+                calendar_uid: "cal".to_string(),
+                is_all_day: false,
+                attendance_status: AttendanceStatus::None,
+            },
+        );
+
+        // If override is first, non-override should NOT replace it
+        let result = dedup_and_sort_meetings(vec![override_m, non_override], 100);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].title, "Override");
+    }
+
+    #[test]
+    fn test_all_day_event_parsed() {
+        let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:allday1\r\n\
+             SUMMARY:Company Holiday\r\n\
+             DTSTART;VALUE=DATE:20270601\r\n\
+             DTEND;VALUE=DATE:20270602\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR";
+        let meetings = parse_and_dedup(&[ics]);
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].title, "Company Holiday");
+        assert!(meetings[0].is_all_day);
+    }
+
+    #[test]
+    fn test_bare_vevent_wrapped() {
+        // EDS sometimes returns raw VEVENT without VCALENDAR wrapper
+        let ics = "BEGIN:VEVENT\r\n\
+             UID:bare1\r\n\
+             SUMMARY:Bare Event\r\n\
+             DTSTART:20270601T100000\r\n\
+             DTEND:20270601T110000\r\n\
+             END:VEVENT";
+        let meetings = parse_and_dedup(&[ics]);
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].title, "Bare Event");
+    }
+
+    #[test]
+    fn test_bundled_master_and_override_in_one_ics() {
+        // EDS can return a master + RECURRENCE-ID exception bundled in one ICS object
+        let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:bundled1\r\n\
+             SUMMARY:Weekly Meeting\r\n\
+             DTSTART:20270601T100000\r\n\
+             DTEND:20270601T110000\r\n\
+             RRULE:FREQ=WEEKLY;COUNT=2\r\n\
+             END:VEVENT\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:bundled1\r\n\
+             SUMMARY:Weekly Meeting (Moved)\r\n\
+             DTSTART:20270601T140000\r\n\
+             DTEND:20270601T150000\r\n\
+             RECURRENCE-ID:20270601T100000\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR";
+        let meetings = parse_and_dedup(&[ics]);
+        // calcard should handle the override within the same ICS, producing:
+        // - The override instance (moved to 14:00) for June 1
+        // - The regular instance for June 8
+        assert_eq!(meetings.len(), 2);
+        // The June 1 instance should use the override (moved time)
+        // The June 8 instance should use the master
+    }
+
+    #[test]
+    fn test_invalid_ics_skipped() {
+        let valid = make_ics("evt1", "Valid", "20270601T100000", "20270601T110000");
+        let invalid = "this is not valid ics data";
+        let meetings = parse_and_dedup(&[&valid, invalid]);
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].title, "Valid");
+    }
+
+    #[test]
+    fn test_event_with_location_and_description() {
+        let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:loc1\r\n\
+             SUMMARY:In-Person Meeting\r\n\
+             DTSTART:20270601T100000\r\n\
+             DTEND:20270601T110000\r\n\
+             LOCATION:Conference Room A\r\n\
+             DESCRIPTION:Quarterly planning session\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR";
+        let meetings = parse_and_dedup(&[ics]);
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].location, Some("Conference Room A".to_string()));
+        assert_eq!(
+            meetings[0].description,
+            Some("Quarterly planning session".to_string())
+        );
+    }
+
+    #[test]
+    fn test_untitled_event_gets_default_title() {
+        let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n\
+             BEGIN:VEVENT\r\n\
+             UID:notitle1\r\n\
+             DTSTART:20270601T100000\r\n\
+             DTEND:20270601T110000\r\n\
+             END:VEVENT\r\n\
+             END:VCALENDAR";
+        let meetings = parse_and_dedup(&[ics]);
+        assert_eq!(meetings.len(), 1);
+        assert_eq!(meetings[0].title, "Untitled Event");
     }
 }
