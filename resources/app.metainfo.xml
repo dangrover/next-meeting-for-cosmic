@@ -54,6 +54,16 @@
   </keywords>
 
   <releases>
+    <release version="0.9.4" date="2026-03-12">
+      <description>
+        <p>Add "Hide if no meetings" option to hide the applet from the panel when there are no upcoming meetings</p>
+        <p>Rename package to cosmic-ext-applet-next-meeting</p>
+        <p>Fix duplicate recurring events</p>
+        <p>Add dynamic calendar discovery and GOA attention warnings</p>
+        <p>Fix settings not persisting in Flatpak</p>
+        <p>Fix recurring events not showing by increasing expansion limit</p>
+      </description>
+    </release>
     <release version="0.9.3" date="2026-03-10">
       <description>
         <p>Fix calendars showing "no meetings" on some systems by properly initializing EDS calendar backends before querying</p>
