@@ -141,6 +141,8 @@ pub struct Config {
     pub calendar_app_command: String,
     /// URL to open when opening the calendar.
     pub calendar_app_url: String,
+    /// Whether to hide the applet from the panel when there are no meetings.
+    pub hide_when_no_meetings: bool,
 }
 
 impl Default for Config {
@@ -178,6 +180,7 @@ impl Default for Config {
             calendar_app_action: CalendarAppAction::default(),
             calendar_app_command: "gnome-calendar".to_string(),
             calendar_app_url: "https://calendar.google.com".to_string(),
+            hide_when_no_meetings: false,
         }
     }
 }

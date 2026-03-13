@@ -1053,6 +1053,18 @@ impl AppModel {
                     )
                     .align_y(cosmic::iced::Alignment::Center)
                     .width(Length::Fill),
+            )
+            // Hide when no meetings toggle
+            .add(
+                widget::row::with_capacity(3)
+                    .push(widget::text::body(fl!("hide-when-no-meetings")))
+                    .push(widget::horizontal_space())
+                    .push(
+                        widget::toggler(self.config.hide_when_no_meetings)
+                            .on_toggle(Message::SetHideWhenNoMeetings),
+                    )
+                    .align_y(cosmic::iced::Alignment::Center)
+                    .width(Length::Fill),
             );
 
         content = content.push(formatting_list);
@@ -1834,6 +1846,7 @@ pub enum Message {
     OpenOnlineAccounts,
     /// System resumed from sleep or session was unlocked
     SystemResumed,
+    SetHideWhenNoMeetings(bool),
     OpenCosmicSettings,
     Noop,
 }
@@ -1941,6 +1954,18 @@ impl cosmic::Application for AppModel {
 
         // Build panel content based on whether we have meetings
         let filtered = self.filtered_meetings();
+
+        // Hide the applet entirely when there are no meetings and the setting is enabled
+        if self.config.hide_when_no_meetings
+            && self.has_loaded_meetings
+            && filtered.is_empty()
+            && !self.available_calendars.is_empty()
+        {
+            return widget::container(widget::Space::new(0, 0))
+                .width(Length::Shrink)
+                .into();
+        }
+
         let (panel_content, show_panel_join) = if let Some(meeting) = filtered.first() {
             // Truncate title if needed
             let title = if meeting.title.len() > 30 {
@@ -2457,6 +2482,10 @@ impl cosmic::Application for AppModel {
             }
             Message::SetPanelCalendarIndicator(enabled) => {
                 self.config.panel_calendar_indicator = enabled;
+                self.save_config();
+            }
+            Message::SetHideWhenNoMeetings(enabled) => {
+                self.config.hide_when_no_meetings = enabled;
                 self.save_config();
             }
             Message::SetPopupCalendarIndicator(enabled) => {
