@@ -40,6 +40,8 @@ pub struct AppModel {
     is_refreshing: bool,
     /// Whether the initial meeting fetch has completed.
     has_loaded_meetings: bool,
+    /// Online accounts that need re-authentication.
+    accounts_needing_attention: Vec<crate::calendar::AccountNeedingAttention>,
 }
 
 /// Navigation state for popup pages
@@ -382,6 +384,48 @@ impl AppModel {
             ))));
         }
 
+        // Warning banner for accounts needing re-authentication
+        if !self.accounts_needing_attention.is_empty() {
+            content = content.push(
+                cosmic::applet::padded_control(widget::divider::horizontal::default())
+                    .padding([space.space_xxs, space.space_s]),
+            );
+            for account in &self.accounts_needing_attention {
+                content = content.push(
+                    cosmic::applet::menu_button(
+                        widget::row::with_capacity(3)
+                            .spacing(space.space_xs)
+                            .align_y(cosmic::iced::Alignment::Center)
+                            .push(
+                                widget::container(
+                                    widget::icon::from_name("dialog-warning-symbolic")
+                                        .size(space.space_m),
+                                )
+                                .class(
+                                    cosmic::theme::Container::custom(|theme| {
+                                        cosmic::iced_widget::container::Style {
+                                            icon_color: Some(
+                                                theme.cosmic().palette.bright_orange.into(),
+                                            ),
+                                            ..Default::default()
+                                        }
+                                    }),
+                                ),
+                            )
+                            .push(
+                                widget::text::body(fl!(
+                                    "account-needs-attention",
+                                    identity = account.identity.clone()
+                                ))
+                                .wrapping(cosmic::iced::widget::text::Wrapping::Word),
+                            )
+                            .width(Length::Fill),
+                    )
+                    .on_press(Message::OpenOnlineAccounts),
+                );
+            }
+        }
+
         // Divider before bottom actions
         content = content.push(
             cosmic::applet::padded_control(widget::divider::horizontal::default())
@@ -595,6 +639,38 @@ impl AppModel {
                 .push(widget::text::title4(fl!("calendars-section")))
                 .spacing(space.space_xxs),
         );
+
+        // Warning for accounts needing re-authentication
+        for account in &self.accounts_needing_attention {
+            content = content.push(
+                cosmic::applet::menu_button(
+                    widget::row::with_capacity(2)
+                        .spacing(space.space_xs)
+                        .align_y(cosmic::iced::Alignment::Center)
+                        .push(
+                            widget::container(
+                                widget::icon::from_name("dialog-warning-symbolic")
+                                    .size(space.space_m),
+                            )
+                            .class(cosmic::theme::Container::custom(
+                                |theme| cosmic::iced_widget::container::Style {
+                                    icon_color: Some(theme.cosmic().palette.bright_orange.into()),
+                                    ..Default::default()
+                                },
+                            )),
+                        )
+                        .push(
+                            widget::text::body(fl!(
+                                "account-needs-attention",
+                                identity = account.identity.clone()
+                            ))
+                            .wrapping(cosmic::iced::widget::text::Wrapping::Word),
+                        )
+                        .width(Length::Fill),
+                )
+                .on_press(Message::OpenOnlineAccounts),
+            );
+        }
 
         // Calendar toggles in a single list_column
         let mut calendars_list =
@@ -1749,6 +1825,12 @@ pub enum Message {
     SetCalendarAppCommand(String),
     SetCalendarAppUrl(String),
     CalendarChanged,
+    /// EDS sources were added or removed (InterfacesAdded/Removed signal)
+    SourcesChanged,
+    /// GOA accounts status was checked
+    AccountsChecked(Vec<crate::calendar::AccountNeedingAttention>),
+    /// User clicked to open GNOME Online Accounts settings
+    OpenOnlineAccounts,
     /// System resumed from sleep or session was unlocked
     SystemResumed,
     OpenCosmicSettings,
@@ -1819,7 +1901,15 @@ impl cosmic::Application for AppModel {
             |meetings| Message::MeetingsUpdated(meetings).into(),
         );
 
-        (app, Task::batch([calendars_task, meetings_task]))
+        let accounts_task = Task::perform(
+            async { crate::calendar::check_accounts_needing_attention().await },
+            |accounts| Message::AccountsChecked(accounts).into(),
+        );
+
+        (
+            app,
+            Task::batch([calendars_task, meetings_task, accounts_task]),
+        )
     }
 
     fn on_close_requested(&self, id: Id) -> Option<Message> {
@@ -1962,7 +2052,7 @@ impl cosmic::Application for AppModel {
             let content = widget::row::with_capacity(2)
                 .spacing(space.space_xxs)
                 .align_y(cosmic::iced::Alignment::Center)
-                .push(widget::icon::from_name("dialog-warning-symbolic").size(space.space_m))
+                .push(widget::icon::from_name("dialog-warning-symbolic").size(space.space_s))
                 .push(self.core.applet.text(fl!("no-calendars")));
             (content, None)
         } else {
@@ -2076,7 +2166,7 @@ impl cosmic::Application for AppModel {
             // Periodically read cached calendar and meeting data (every 60 seconds)
             Subscription::run_with_id(
                 config_hash,
-                cosmic::iced::stream::channel(4, move |mut channel| async move {
+                cosmic::iced::stream::channel(6, move |mut channel| async move {
                     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
                     loop {
                         interval.tick().await;
@@ -2090,6 +2180,9 @@ impl cosmic::Application for AppModel {
                         )
                         .await;
                         let _ = channel.send(Message::MeetingsUpdated(meetings)).await;
+                        // Check for GOA accounts needing re-authentication
+                        let accounts = crate::calendar::check_accounts_needing_attention().await;
+                        let _ = channel.send(Message::AccountsChecked(accounts)).await;
                     }
                 }),
             ),
@@ -2143,6 +2236,23 @@ impl cosmic::Application for AppModel {
             }),
         ));
 
+        // Watch for new/removed calendar sources via ObjectManager signals
+        // Detects when the user adds or removes a calendar account
+        subscriptions.push(Subscription::run_with_id(
+            "source-changes",
+            cosmic::iced::stream::channel(2, move |mut channel| async move {
+                let (sender, mut receiver) = tokio::sync::mpsc::channel::<()>(2);
+
+                let watch_task = tokio::spawn(crate::calendar::watch_source_changes(sender));
+
+                while receiver.recv().await.is_some() {
+                    let _ = channel.send(Message::SourcesChanged).await;
+                }
+
+                watch_task.abort();
+            }),
+        ));
+
         // Watch for system resume (from sleep) and session unlock events
         // Uses org.freedesktop.login1 on the system bus; fails gracefully on non-systemd systems
         subscriptions.push(Subscription::run_with_id(
@@ -2182,6 +2292,27 @@ impl cosmic::Application for AppModel {
                 self.has_loaded_meetings = true;
             }
             Message::CalendarsLoaded(calendars) => {
+                // Auto-enable newly discovered meeting-source calendars
+                // (only when the user has explicitly selected calendars; if the
+                // list is empty, all calendars are already implicitly enabled)
+                if !self.config.enabled_calendar_uids.is_empty() {
+                    let mut changed = false;
+                    for cal in &calendars {
+                        if cal.is_meeting_source()
+                            && !self
+                                .available_calendars
+                                .iter()
+                                .any(|prev| prev.uid == cal.uid)
+                            && !self.config.enabled_calendar_uids.contains(&cal.uid)
+                        {
+                            self.config.enabled_calendar_uids.push(cal.uid.clone());
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        self.save_config();
+                    }
+                }
                 self.available_calendars = calendars;
             }
             Message::ToggleCalendar(uid) => {
@@ -2409,9 +2540,11 @@ impl cosmic::Application for AppModel {
                     let additional_emails = self.config.additional_emails.clone();
                     return Task::perform(
                         async move {
-                            // First refresh calendars from remote servers
+                            // Ask EDS to re-discover calendars from accounts
+                            crate::calendar::refresh_source_backends().await;
+                            // Refresh existing calendars from remote servers
                             crate::calendar::refresh_calendars(&enabled_uids).await;
-                            // Wait a moment for EDS to process the refresh
+                            // Wait a moment for EDS to process
                             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                             // Then fetch updated meetings
                             crate::calendar::get_upcoming_meetings(
@@ -2469,6 +2602,43 @@ impl cosmic::Application for AppModel {
                     .spawn();
             }
             Message::Noop => {}
+            Message::AccountsChecked(accounts) => {
+                self.accounts_needing_attention = accounts;
+            }
+            Message::OpenOnlineAccounts => {
+                // gnome-control-center checks XDG_CURRENT_DESKTOP and refuses to
+                // launch outside GNOME/Unity, so override it for this call.
+                let _ = std::process::Command::new("gnome-control-center")
+                    .arg("online-accounts")
+                    .env("XDG_CURRENT_DESKTOP", "GNOME")
+                    .spawn();
+            }
+            Message::SourcesChanged => {
+                // EDS sources were added or removed — refresh calendar list and meetings.
+                // The CalendarsLoaded handler will auto-enable any new calendars.
+                let enabled_uids = self.enabled_meeting_source_uids();
+                let upcoming_count = self.config.upcoming_events_count as usize;
+                let additional_emails = self.config.additional_emails.clone();
+
+                let calendars_task = Task::perform(
+                    async { crate::calendar::get_available_calendars().await },
+                    |calendars| Message::CalendarsLoaded(calendars).into(),
+                );
+
+                let meetings_task = Task::perform(
+                    async move {
+                        crate::calendar::get_upcoming_meetings(
+                            &enabled_uids,
+                            upcoming_count + 1,
+                            &additional_emails,
+                        )
+                        .await
+                    },
+                    |meetings| Message::MeetingsUpdated(meetings).into(),
+                );
+
+                return Task::batch([calendars_task, meetings_task]);
+            }
             Message::CalendarChanged => {
                 // A calendar was updated via D-Bus signal (sync completed)
                 // Refresh both calendars list (for updated sync timestamps) and meetings
